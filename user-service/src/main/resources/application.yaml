@@ -1,0 +1,11 @@
+server:
+  port: 2311
+
+spring:
+  application:
+    name: user-service
+  cloud:
+    config:
+      enabled: true
+  config:
+    import: optional:configserver:${SPRING_CLOUD_CONFIG_URI:http://localhost:8888}

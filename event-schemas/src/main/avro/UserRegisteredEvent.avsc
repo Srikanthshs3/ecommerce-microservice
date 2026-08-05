@@ -1,0 +1,13 @@
+{
+  "type": "record",
+  "name": "UserRegisteredEvent",
+  "namespace": "org.praskanth.events",
+  "doc": "Published by user-service once a user completes the email-verified registration flow.",
+  "fields": [
+    {"name": "eventId", "type": "string", "doc": "UUID, unique per publish attempt - the key consumers dedupe on"},
+    {"name": "userId", "type": "long"},
+    {"name": "email", "type": "string"},
+    {"name": "name", "type": "string"},
+    {"name": "registeredAt", "type": {"type": "long", "logicalType": "timestamp-millis"}}
+  ]
+}

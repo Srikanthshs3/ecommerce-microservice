@@ -1,0 +1,11 @@
+{
+  "type": "record",
+    "name": "SendOtpEvent",
+    "namespace": "org.praskanth.events",
+    "doc": "Command event to trigger an OTP email via the notification service.",
+    "fields": [
+      {"name": "eventId", "type": "string"},
+      {"name": "email", "type": "string"},
+      {"name": "otp", "type": "string"}
+    ]
+}
