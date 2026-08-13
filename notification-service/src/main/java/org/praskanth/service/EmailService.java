@@ -47,4 +47,20 @@ public class EmailService {
             log.error("Failed to send welcome email to: {}. Error: {}", toEmail, e.getMessage());
         }
     }
+
+    public void sendPasswordResetEmail(String toEmail, String resetLink) {
+        try {
+            SimpleMailMessage message = new SimpleMailMessage();
+            message.setFrom(username);
+            message.setTo(toEmail);
+            message.setSubject("Password Reset Request");
+            message.setText("You requested a password reset. Click the link below to reset your password:\n" + resetLink +
+                    "\n\nIf you did not request this, please ignore this email.");
+
+            mailSender.send(message);
+            log.info("Password reset email sent to: {}", toEmail);
+        } catch (Exception e) {
+            log.error("Failed to send password reset email to: {}. Error: {}", toEmail, e.getMessage());
+        }
+    }
 }

@@ -2,6 +2,7 @@ package org.praskanth.service;
 
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
+import org.praskanth.events.PasswordResetEvent;
 import org.praskanth.events.SendOtpEvent;
 import org.praskanth.events.UserRegisteredEvent;
 import org.springframework.kafka.annotation.KafkaListener;
@@ -36,5 +37,16 @@ public class NotificationConsumer {
         log.info("Received registration event for email: {}", event.getEmail());
         String email = event.getEmail().toString();
         emailService.sendWelcomeEmail(email);
+    }
+
+    @KafkaListener(topics = "password-reset",
+            groupId = "notification-group",
+            containerFactory = "kafkaListenerContainerFactory")
+    public void consumePasswordResetEvent(PasswordResetEvent event, Acknowledgment ack) {
+        log.info("Received password reset event for email: {}", event.getEmail());
+        String email = event.getEmail().toString();
+        String resetLink = event.getResetToken().toString();
+        emailService.sendPasswordResetEmail(email, resetLink);
+        ack.acknowledge();
     }
 }

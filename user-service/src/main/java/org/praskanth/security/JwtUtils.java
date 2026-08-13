@@ -42,7 +42,7 @@ public class JwtUtils {
     public String generateToken(User user) {
         return Jwts.builder()
                 .subject(user.getEmail())
-                .claim("roles", List.of(user.getRole().name()))
+                .claim("roles", user.getRole().stream().map(role -> role.getName().name()).toList())
                 .claim("userId", user.getId())
                 .issuedAt(new Date(System.currentTimeMillis()))
                 .expiration(new Date(System.currentTimeMillis() + EXPIRATION_TIME_IN_MILLISEC))

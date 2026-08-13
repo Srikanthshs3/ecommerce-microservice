@@ -4,6 +4,10 @@ target/
 !**/src/test/**/target/
 docker/tempo/tempo-data/
 grafana/
+.mvn/
+mvnw
+mvnw.cmd
+
 
 ### IntelliJ IDEA ###
 .idea

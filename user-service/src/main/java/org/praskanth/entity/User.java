@@ -1,6 +1,5 @@
 package org.praskanth.entity;
 
-import com.fasterxml.jackson.annotation.JsonIgnore;
 import com.fasterxml.jackson.annotation.JsonProperty;
 import jakarta.persistence.*;
 import jakarta.validation.constraints.NotBlank;
@@ -25,39 +24,58 @@ public class User {
     @GeneratedValue(strategy = GenerationType.IDENTITY)
     private Long id;
 
-    @NotBlank(message = "name is required")
-    @Column(nullable = false)
+    @Column(unique = true, nullable = false)
+    private String email;
+
     private String name;
 
-    @Column(nullable = false, unique = true)
-    @NotBlank(message = "email is required")
-    private String email;
+    @Column(unique = true)
+    private String phoneNumber;
 
     @NotBlank(message = "password is required")
     @Column(nullable = false)
     @JsonProperty(access = JsonProperty.Access.WRITE_ONLY)
     private String password;
 
-    //@Column(name = "phone_number", nullable = false, unique = true)
-    //@NotBlank(message = "phone number is required")
-    private String phoneNumber;
+    private boolean emailVerified;
 
-    @Enumerated(EnumType.STRING)
-    private UserRole role;
+    @ManyToMany(fetch = FetchType.EAGER)
+    @JoinTable(
+            name = "user_roles",
+            joinColumns = @JoinColumn(name = "user_id"),
+            inverseJoinColumns = @JoinColumn(name = "role_id")
+    )
+    @Builder.Default
+    private Set<Role> role = new HashSet<>();
 
-    /*@OneToMany
-    private Set<Address> address = new HashSet<>();*/
+    @OneToOne(mappedBy = "user", cascade = CascadeType.ALL)
+    private SellerProfile sellerProfile;
 
-    //@Column(name = "created_at", nullable = false, updatable = false)
-    private Instant createdAt = Instant.now();
+    @OneToOne(mappedBy = "user", cascade = CascadeType.ALL)
+    private CustomerProfile customerProfile;
 
-    //@Builder.Default
-    //@Column(nullable = false)
-    private boolean emailVerified = true;
+    private Instant createdAt;
+    private Instant updatedAt;
 
-    /*@ManyToMany
-    @JsonIgnore
-    private Set<Coupon> usedCoupons = new HashSet<>();*/
+    @PrePersist
+    protected void onCreate() { this.createdAt = Instant.now(); }
 
+    @PreUpdate
+    protected void onUpdate() { this.updatedAt = Instant.now(); }
+
+    @Column(name = "failed_attempt_count")
+    @Builder.Default
+    private int failedAttemptCount = 0;
+
+    @Column(name = "account_non_locked")
+    @Builder.Default
+    private boolean accountNonLocked = true;
+
+    // For password reset
+    @Column(name = "reset_token", unique = true)
+    private String resetToken;
+
+    @Column(name = "reset_token_expiry")
+    private Instant resetTokenExpiry;
 
 }

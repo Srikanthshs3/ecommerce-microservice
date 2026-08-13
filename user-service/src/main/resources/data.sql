@@ -1,0 +1,6 @@
+INSERT INTO user_role (id, name) VALUES
+(1, 'CUSTOMER'),
+(2, 'SELLER'),
+(3, 'ADMIN'),
+(4, 'DELIVERY_PARTNER'),
+(5, 'SUPPORT_AGENT');

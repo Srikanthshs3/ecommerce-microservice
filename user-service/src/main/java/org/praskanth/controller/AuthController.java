@@ -15,6 +15,8 @@ import org.springframework.http.ResponseEntity;
 import org.springframework.security.crypto.password.PasswordEncoder;
 import org.springframework.web.bind.annotation.*;
 
+import java.util.stream.Collectors;
+
 @RestController
 @RequestMapping("/api/v1/auth")
 @RequiredArgsConstructor
@@ -45,20 +47,8 @@ public class AuthController {
 
     @PostMapping("/login")
     public ResponseEntity<ApiResponse<LoginResponse>> login(@Valid @RequestBody LoginRequest request) {
-        User user = userRepo.findByEmail(request.getEmail())
-                .orElseThrow(() -> new UnauthorizedException("Invalid email or password"));
 
-        if (!passwordEncoder.matches(request.getPassword(), user.getPassword())) {
-            throw new UnauthorizedException("Invalid email or password");
-        }
-
-        String token = jwtUtils.generateToken(user);
-        LoginResponse response = LoginResponse.builder()
-                .token(token)
-                .email(user.getEmail())
-                .name(user.getName())
-                .role(user.getRole().name())
-                .build();
+        LoginResponse response = registrationService.login(request);
 
         return ResponseEntity.ok(ApiResponse.success(response));
     }
@@ -75,10 +65,22 @@ public class AuthController {
                 .id(user.getId())
                 .email(user.getEmail())
                 .name(user.getName())
-                .role(user.getRole().name())
+                .role(user.getRole().stream().map(role -> role.getName().name()).collect(Collectors.toSet()))
                 .createdAt(user.getCreatedAt())
                 .build();
 
         return ResponseEntity.ok(ApiResponse.success(response));
+    }
+
+    @PostMapping("/forgot-password")
+    public ResponseEntity<ApiResponse<String>> forgotPassword(@Valid @RequestBody ForgotPasswordRequest request) {
+        registrationService.generatePasswordResetToken(request.getEmail());
+        return ResponseEntity.ok(ApiResponse.success("If an account exists, a password reset link has been sent to the email."));
+    }
+
+    @PostMapping("/reset-password")
+    public ResponseEntity<ApiResponse<String>> resetPassword(@Valid @RequestBody ResetPasswordRequest request) {
+        registrationService.resetPassword(request.getToken(), request.getNewPassword());
+        return ResponseEntity.ok(ApiResponse.success("Password reset successfully. You can now log in."));
     }
 }

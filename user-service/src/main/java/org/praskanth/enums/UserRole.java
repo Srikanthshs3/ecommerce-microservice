@@ -1,5 +1,5 @@
 package org.praskanth.enums;
 
 public enum UserRole {
-    ADMIN, CUSTOMER, SELLER;
+    ADMIN, CUSTOMER, SELLER, DELIVERY_PARTNER, SUPPORT_AGENT;
 }
