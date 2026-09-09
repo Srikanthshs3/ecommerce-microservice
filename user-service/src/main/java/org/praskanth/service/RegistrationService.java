@@ -4,10 +4,7 @@ import jakarta.ws.rs.ForbiddenException;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
 import org.praskanth.dto.*;
-import org.praskanth.entity.CustomerProfile;
-import org.praskanth.entity.Role;
-import org.praskanth.entity.SellerProfile;
-import org.praskanth.entity.User;
+import org.praskanth.entity.*;
 import org.praskanth.enums.UserRole;
 import org.praskanth.exception.BadRequestException;
 import org.praskanth.exception.ConflictException;
@@ -25,6 +22,7 @@ import java.security.SecureRandom;
 import java.time.Duration;
 import java.time.Instant;
 import java.time.temporal.ChronoUnit;
+import java.util.Map;
 import java.util.Optional;
 import java.util.Set;
 import java.util.UUID;
@@ -51,6 +49,7 @@ public class RegistrationService {
     private final UserEventProducer userEventProducer;
     private final RoleRepo roleRepo;
     private final JwtUtils jwtUtils;
+    private final RefreshTokenService refreshTokenService;
 
     private final SecureRandom secureRandom = new SecureRandom();
 
@@ -70,7 +69,6 @@ public class RegistrationService {
         redisTemplate.opsForValue().set(OTP_KEY_PREFIX + email, otp, OTP_TTL);
         redisTemplate.delete(OTP_ATTEMPTS_PREFIX + email);
         log.info("Generated OTP {} for {}", otp, email);
-        System.out.println("Generated OTP " + otp + " for " + email); // For demonstration purposes only; remove in production
         userEventProducer.publishSendOtpEmail(email, otp);
 
         log.info("Registration OTP issued for {}", email);
@@ -122,10 +120,10 @@ public class RegistrationService {
         }
 
         UserRole targetRole = request.getRole();
-        /*if (targetRole == UserRole.ADMIN || targetRole == UserRole.SUPPORT_AGENT) {
+        if (targetRole == UserRole.ADMIN || targetRole == UserRole.SUPPORT_AGENT) {
             throw new BadRequestException("Cannot register as ADMIN or SUPPORT_AGENT through this endpoint");
 
-        }*/
+        }
 
         Role dbRole = roleRepo.findByName(targetRole)
                 .orElseThrow(() -> new BadRequestException("Role " + targetRole + " not found in the system"));
@@ -141,14 +139,14 @@ public class RegistrationService {
                 .build();
 
         if (targetRole == UserRole.SELLER){
-            if (request.getStoreName() == null || request.getStoreName().isBlank()) {
-                throw new BadRequestException("Store name is required for SELLER registration");
+            if (request.getGSTIN() == null || request.getGSTIN().isBlank()) {
+                throw new BadRequestException("GSTIN is required "+ request.getGSTIN()+ " for SELLER registration");
             }
             SellerProfile sellerProfile = SellerProfile.builder()
-                    .storeName(request.getStoreName())
+                    .GSTIN(request.getGSTIN())
                     .user(user)
-                    .taxIdentifier(request.getTaxIdentifier())
-                    .businessRegistrationNumber(request.getBusinessRegistrationNumber())
+                    .businessDetails(request.getBusinessDetails())
+                    .bankDetails(request.getBankDetails())
                     .kycStatus(SellerProfile.KycStatus.PENDING)
                     .build();
             user.setSellerProfile(sellerProfile);
@@ -169,8 +167,8 @@ public class RegistrationService {
         String kycStatusStr = saved.getSellerProfile() != null
                 ? saved.getSellerProfile().getKycStatus().name() : null;
 
-        String storedNameStr = saved.getSellerProfile() != null
-                ? saved.getSellerProfile().getStoreName() : saved.getCustomerProfile().getFullName();
+        String gstIn = saved.getSellerProfile() != null
+                ? saved.getSellerProfile().getGSTIN() : saved.getCustomerProfile().getFullName();
 
         return UserResponse.builder()
                 .id(saved.getId())
@@ -178,13 +176,13 @@ public class RegistrationService {
                 .name(saved.getName())
                 .role(saved.getRole().stream().map(role -> role.getName().name()).collect(Collectors.toSet()))
                 .kycStatus(kycStatusStr)
-                .storeName(storedNameStr)
+                .GSTIN(gstIn)
                 .createdAt(saved.getCreatedAt())
                 .build();
     }
 
     @Transactional(noRollbackFor = {UnauthorizedException.class, ForbiddenException.class})
-    public LoginResponse login(LoginRequest request) {
+    public Map<String, Object> login(LoginRequest request) {
         User user = userRepo.findByEmail(request.getEmail())
                 .orElseThrow(() -> new UnauthorizedException("Invalid email or password"));
 
@@ -228,12 +226,46 @@ public class RegistrationService {
         }
 
         String token = jwtUtils.generateToken(user);
-        return LoginResponse.builder()
+        RefreshToken refreshToken = refreshTokenService.createOrUpdateRefreshToken(user);
+
+        LoginResponse responseBody = LoginResponse.builder()
                 .token(token)
+                .expiresIn(jwtUtils.getAccessTokenExpirationMs() / 1000)
                 .email(user.getEmail())
                 .name(user.getName())
                 .role(user.getRole().stream().map(role -> role.getName().name()).findFirst().orElse("UNKNOWN"))
                 .build();
+        return Map.of("response", responseBody, "refreshToken", refreshToken.getToken());
+    }
+
+    @Transactional
+    public Map<String, Object> refreshAccessToken(String refreshTokenValue) {
+        if (refreshTokenValue == null || refreshTokenValue.isBlank()) {
+            throw new UnauthorizedException("Refresh token cookie is missing");
+        }
+
+        RefreshToken refreshToken = refreshTokenService.verifyExpiration(refreshTokenValue);
+        User user = refreshToken.getUser();
+
+        // Generate new Access Token
+        String newAccessToken = jwtUtils.generateToken(user);
+
+        // Rotate refresh token
+        RefreshToken rotatedRefreshToken = refreshTokenService.createOrUpdateRefreshToken(user);
+
+        RefreshTokenResponse response = RefreshTokenResponse.builder()
+                .token(newAccessToken)
+                .expiresIn(jwtUtils.getAccessTokenExpirationMs() / 1000)
+                .build();
+
+        return Map.of("response", response, "newRefreshToken", rotatedRefreshToken.getToken());
+    }
+
+    @Transactional
+    public void logout(String refreshTokenValue) {
+        if (refreshTokenValue != null && !refreshTokenValue.isBlank()) {
+            refreshTokenService.revokeRefreshToken(refreshTokenValue);
+        }
     }
 
     @Transactional

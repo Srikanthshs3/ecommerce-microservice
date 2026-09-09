@@ -12,5 +12,5 @@ public class UserUpdateRequest {
     @NotBlank(message = "Name cannot be empty")
     private String name;
 
-    private String storeName;
+    private String GSTIN;
 }

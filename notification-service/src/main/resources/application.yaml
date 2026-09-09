@@ -3,7 +3,7 @@ server:
 
 spring:
   application:
-    name: notification-service
+    name: NOTIFICATION-SERVICE
   cloud:
     config:
       enabled: true

@@ -1,0 +1,12 @@
+{
+  "type": "record",
+  "name": "InventoryReservationFailedEvent",
+  "namespace": "org.praskanth.events",
+  "doc": "Published by inventory-service when any line item of an order could not be reserved (e.g. insufficient stock). Any items already reserved for this order are released before this is published.",
+  "fields": [
+    {"name": "eventId", "type": "string"},
+    {"name": "orderId", "type": "long"},
+    {"name": "reason", "type": "string"},
+    {"name": "failedAt", "type": {"type": "long", "logicalType": "timestamp-millis"}}
+  ]
+}

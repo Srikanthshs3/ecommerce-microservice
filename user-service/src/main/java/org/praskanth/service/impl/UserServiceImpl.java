@@ -2,15 +2,11 @@ package org.praskanth.service.impl;
 
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
-import org.praskanth.dto.AddressResponse;
-import org.praskanth.dto.RoleUpdateRequest;
-import org.praskanth.dto.UserResponse;
-import org.praskanth.dto.UserUpdateRequest;
+import org.praskanth.dto.*;
 import org.praskanth.entity.Address;
 import org.praskanth.entity.Role;
 import org.praskanth.entity.SellerProfile;
 import org.praskanth.entity.User;
-import org.praskanth.enums.UserRole;
 import org.praskanth.exception.BadRequestException;
 import org.praskanth.exception.NotFoundException;
 import org.praskanth.repository.AddressRepo;
@@ -52,9 +48,9 @@ public class UserServiceImpl implements UserService {
         User user = userRepo.findByEmail(email).orElseThrow(() ->
                 new NotFoundException("User with email " + email + " not found"));
         user.setName(request.getName());
-        if (request.getStoreName()!= null && !request.getStoreName().isBlank()){
+        if (request.getGSTIN()!= null && !request.getGSTIN().isBlank()){
             SellerProfile sellerProfile = user.getSellerProfile();
-            sellerProfile.setStoreName(request.getStoreName());
+            sellerProfile.setGSTIN(request.getGSTIN());
         }
         User updatedUser = userRepo.save(user);
         log.info("User profile updated for email: {}", email);
@@ -100,6 +96,30 @@ public class UserServiceImpl implements UserService {
     }
 
     @Override
+    public SellerResponse getSellerById(Long id) {
+        SellerProfile sellerProfile = sellerProfileRepo.findById(id)
+                .orElseThrow(() -> new NotFoundException("Seller with ID " + id + " not found"));
+        return mapToSellerResponse(sellerProfile);
+    }
+
+    @Override
+    public Page<SellerResponse> getAllSellers(Pageable pageable) {
+        return sellerProfileRepo.findAll(pageable).map(this::mapToSellerResponse);
+    }
+
+    @Override
+    public SellerResponse updateSellerProfile(Long id, UserUpdateRequest updateRequest) {
+        return null;
+    }
+
+    @Override
+    public void deleteSellerProfile(Long id) {
+        getSellerById(id);
+        sellerProfileRepo.deleteById(id);
+    }
+
+
+    @Override
     @Transactional
     public UserResponse updateUserRole(Long userId, RoleUpdateRequest request) {
         User user = userRepo.findById(userId).orElseThrow(() ->
@@ -128,12 +148,14 @@ public class UserServiceImpl implements UserService {
 
     }
 
+
+
     private UserResponse mapToUserResponse(User user) {
         String kycStatus = user.getSellerProfile() != null
                 ? user.getSellerProfile().getKycStatus().name() : null;
 
-        String storeName = user.getSellerProfile() != null
-                ? user.getSellerProfile().getStoreName() : null;
+        String gstIn = user.getSellerProfile() != null
+                ? user.getSellerProfile().getGSTIN() : null;
 
         Set<String> roles = user.getRole().stream()
                 .map(role -> role.getName().name())
@@ -152,7 +174,7 @@ public class UserServiceImpl implements UserService {
                 .name(user.getName())
                 .role(roles)
                 .kycStatus(kycStatus)
-                .storeName(storeName)
+                .GSTIN(gstIn)
                 .createdAt(user.getCreatedAt())
                 .addresses(userAddresses)
                 .build();
@@ -170,6 +192,25 @@ public class UserServiceImpl implements UserService {
                 .country(address.getCountry())
                 .addressType(address.getAddressType().name())
                 .isDefault(address.isDefault())
+                .build();
+    }
+
+    private SellerResponse mapToSellerResponse(SellerProfile sellerProfile) {
+
+        List<AddressResponse> sellerAddress = null;
+        if (sellerProfile.getAddresses() != null) {
+            sellerAddress = sellerProfile.getAddresses().stream()
+                    .map(this::mapToAddressResponse).toList();
+        }
+
+        return SellerResponse.builder()
+                .id(sellerProfile.getId())
+                .userId(sellerProfile.getUserId())
+                .GSTIN(sellerProfile.getGSTIN())
+                .kycStatus(String.valueOf(sellerProfile.getKycStatus()))
+                .businessDetails(sellerProfile.getBusinessDetails())
+                .bankDetails(sellerProfile.getBankDetails())
+                .addresses(sellerAddress)
                 .build();
     }
 }

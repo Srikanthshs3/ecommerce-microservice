@@ -5,7 +5,6 @@ import lombok.extern.slf4j.Slf4j;
 import org.praskanth.dto.AddressRequest;
 import org.praskanth.dto.AddressResponse;
 import org.praskanth.entity.Address;
-import org.praskanth.entity.CustomerProfile;
 import org.praskanth.entity.User;
 import org.praskanth.exception.BadRequestException;
 import org.praskanth.exception.NotFoundException;
@@ -24,16 +23,17 @@ public class AddressServiceImpl implements AddressService {
 
     private final AddressRepo addressRepo;
     private final UserRepo userRepo;
+
     @Override
     @Transactional
     public AddressResponse addAddress(String email, AddressRequest request) {
-        CustomerProfile customerProfile = getCustomerProfile(email);
+        User user = getUser(email);
 
         if (request.isDefault()) {
-            clearPreviousDefault(customerProfile.getUserId(), request.getAddressType());
+            clearPreviousDefault(user.getId(), request.getAddressType());
         }
+
         Address address = Address.builder()
-                .customerProfile(customerProfile)
                 .recipientName(request.getRecipientName())
                 .streetLine1(request.getStreetLine1())
                 .streetLine2(request.getStreetLine2())
@@ -44,6 +44,16 @@ public class AddressServiceImpl implements AddressService {
                 .addressType(request.getAddressType())
                 .isDefault(request.isDefault())
                 .build();
+
+        // Dynamically link the address to the correct profile
+        if (user.getSellerProfile() != null) {
+            address.setSellerProfile(user.getSellerProfile());
+        } else if (user.getCustomerProfile() != null) {
+            address.setCustomerProfile(user.getCustomerProfile());
+        } else {
+            throw new BadRequestException("User does not have an active profile to attach an address.");
+        }
+
         Address savedAddress = addressRepo.save(address);
         log.info("Address added for user with email: {}", email);
         return mapToResponse(savedAddress);
@@ -52,20 +62,21 @@ public class AddressServiceImpl implements AddressService {
     @Override
     @Transactional(readOnly = true)
     public List<AddressResponse> getUserAddresses(String email) {
-        CustomerProfile customerProfile = getCustomerProfile(email);
-        return addressRepo.findByCustomerProfileUserId(customerProfile.getUserId())
+        User user = getUser(email);
+        return addressRepo.findAllByUserId(user.getId())
                 .stream()
                 .map(this::mapToResponse)
                 .toList();
     }
 
     @Override
+    @Transactional
     public AddressResponse updateAddress(String email, Long addressId, AddressRequest request) {
-        CustomerProfile customerProfile = getCustomerProfile(email);
-        Address address = getAddressSecurityCheck(addressId, customerProfile.getUserId());
+        User user = getUser(email);
+        Address address = getAddressSecurityCheck(addressId, user.getId());
 
         if (request.isDefault() && !address.isDefault()) {
-            clearPreviousDefault(customerProfile.getUserId(), request.getAddressType());
+            clearPreviousDefault(user.getId(), request.getAddressType());
         }
 
         address.setRecipientName(request.getRecipientName());
@@ -86,8 +97,8 @@ public class AddressServiceImpl implements AddressService {
     @Override
     @Transactional
     public void deleteAddress(String email, Long addressId) {
-        CustomerProfile customerProfile = getCustomerProfile(email);
-        Address address = getAddressSecurityCheck(addressId, customerProfile.getUserId());
+        User user = getUser(email);
+        Address address = getAddressSecurityCheck(addressId, user.getId());
 
         addressRepo.delete(address);
         log.info("Address with ID {} deleted for user with email: {}", addressId, email);
@@ -96,34 +107,31 @@ public class AddressServiceImpl implements AddressService {
     @Override
     @Transactional
     public AddressResponse setDefaultAddress(String email, Long addressId) {
-        CustomerProfile customerProfile = getCustomerProfile(email);
-        Address address = getAddressSecurityCheck(addressId, customerProfile.getUserId());
+        User user = getUser(email);
+        Address address = getAddressSecurityCheck(addressId, user.getId());
 
-        clearPreviousDefault(customerProfile.getUserId(), address.getAddressType());
+        clearPreviousDefault(user.getId(), address.getAddressType());
         address.setDefault(true);
+
         Address updatedAddress = addressRepo.save(address);
         log.info("Address with ID {} set as default for user with email: {}", addressId, email);
         return mapToResponse(updatedAddress);
     }
 
-    // Helper methods
+    // --- Helper methods ---
 
-    private CustomerProfile getCustomerProfile(String email){
-        User user = userRepo.findByEmail(email)
+    private User getUser(String email){
+        return userRepo.findByEmail(email)
                 .orElseThrow(() -> new NotFoundException("User with email " + email + " not found"));
-        if (user.getCustomerProfile() == null) {
-            throw new BadRequestException("Only registered customers can manage addresses. User with email " + email + " is not a customer.");
-        }
-        return user.getCustomerProfile();
     }
 
-    private Address getAddressSecurityCheck(Long addressId, Long customerId) {
-        return addressRepo.findByIdAndCustomerProfileUserId(addressId, customerId)
-                .orElseThrow(() -> new NotFoundException("Address with ID " + addressId + " not found for the current user or you do not have permission to modify."));
+    private Address getAddressSecurityCheck(Long addressId, Long userId) {
+        return addressRepo.findByAddressIdAndUserId(addressId, userId)
+                .orElseThrow(() -> new NotFoundException("Address with ID " + addressId + " not found or you do not have permission to modify it."));
     }
 
-    private void clearPreviousDefault(Long customerId, Address.AddressType type) {
-        List<Address> addresses = addressRepo.findByCustomerProfileUserId(customerId);
+    private void clearPreviousDefault(Long userId, Address.AddressType type) {
+        List<Address> addresses = addressRepo.findAllByUserId(userId);
         for (Address address : addresses) {
             if (address.getAddressType() == type && address.isDefault()) {
                 address.setDefault(false);
@@ -146,7 +154,4 @@ public class AddressServiceImpl implements AddressService {
                 .isDefault(address.isDefault())
                 .build();
     }
-
-
-
 }

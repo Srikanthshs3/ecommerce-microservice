@@ -3,10 +3,12 @@ server:
 
 spring:
   application:
-    name: api-gateway
+    name: API-GATEWAY
   cloud:
     config:
       enabled: true
   config:
     # Use environment variable for Docker, fallback to localhost for IDE
     import: optional:configserver:${SPRING_CLOUD_CONFIG_URI:http://localhost:8888}
+
+secreteJwtString: ${JWT_SECRET:adfnkgndsfvndnscsodvndvndkvnknvkdfsnkjdsnvdfnnd}

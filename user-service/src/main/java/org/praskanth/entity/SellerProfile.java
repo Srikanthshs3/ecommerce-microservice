@@ -5,6 +5,11 @@ import lombok.AllArgsConstructor;
 import lombok.Builder;
 import lombok.Data;
 import lombok.NoArgsConstructor;
+import org.praskanth.dto.BankDetails;
+import org.praskanth.dto.BusinessDetails;
+
+import java.util.ArrayList;
+import java.util.List;
 
 @Entity
 @Table(name = "seller_profile")
@@ -15,6 +20,9 @@ import lombok.NoArgsConstructor;
 public class SellerProfile {
 
     @Id
+    private Long id;
+
+    @Column(name = "user_id", updatable = false, insertable = false)
     private Long userId;
 
     @OneToOne
@@ -22,19 +30,24 @@ public class SellerProfile {
     @JoinColumn(name = "user_id")
     private User user;
 
-    private String storeName;
-
-    private String businessRegistrationNumber;
-    private String taxIdentifier;
-
     @Enumerated(EnumType.STRING)
     private KycStatus kycStatus;
 
-    private String bankAccountNumber;
-    private String bankIFSCCode;
+    @Embedded
+    private BankDetails bankDetails = new BankDetails();
+
+    @Embedded
+    private BusinessDetails  businessDetails = new BusinessDetails();
+
+
+    @OneToMany(mappedBy = "sellerProfile", cascade = CascadeType.ALL, orphanRemoval = true)
+    @Builder.Default
+    private List<Address> addresses = new ArrayList<>();
+
+    private String GSTIN;
 
     public enum KycStatus {
-        PENDING, APPROVED, REJECTED, SUSPENDED
+        PENDING, ACTIVE, REJECTED, SUSPENDED, DEACTIVATED, BANNED, CLOSED
     }
 
 

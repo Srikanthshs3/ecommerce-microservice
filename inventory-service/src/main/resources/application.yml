@@ -1,0 +1,11 @@
+server:
+  port: 2316
+
+spring:
+  application:
+    name: INVENTORY-SERVICE
+  cloud:
+    config:
+      enabled: true
+  config:
+    import: optional:configserver:${SPRING_CLOUD_CONFIG_URI:http://localhost:8888}

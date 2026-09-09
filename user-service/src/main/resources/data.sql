@@ -1,4 +1,4 @@
-INSERT INTO user_role (id, name) VALUES
+INSERT IGNORE INTO user_role (id, name) VALUES
 (1, 'CUSTOMER'),
 (2, 'SELLER'),
 (3, 'ADMIN'),

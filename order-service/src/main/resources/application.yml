@@ -1,0 +1,15 @@
+server:
+  port: 2317
+
+spring:
+  application:
+    name: ORDER-SERVICE
+  cloud:
+    config:
+      enabled: true
+  config:
+    import: optional:configserver:${SPRING_CLOUD_CONFIG_URI:http://localhost:8888}
+
+user:
+  api:
+    url: http://USER-SERVICE

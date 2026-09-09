@@ -22,7 +22,8 @@ import java.util.function.Function;
 public class JwtUtils {
 
 
-    private static final long EXPIRATION_TIME_IN_MILLISEC = 1000L * 60L * 60L * 24L * 30L * 6L; //expirers 6 months
+    // 15 minutes = 900,000 ms
+    private static final long EXPIRATION_TIME_IN_MILLISEC = 15L * 60L * 1000L;
     private SecretKey key;
 
     @Value("${secreteJwtString}")
@@ -34,20 +35,20 @@ public class JwtUtils {
         this.key = new SecretKeySpec(keyBytes, "HmacSHA256");
     }
 
-   /* public String generateToken(User user) {
-        String username = user.getEmail();
-        return generateToken(username);
-    }*/
-
     public String generateToken(User user) {
         return Jwts.builder()
                 .subject(user.getEmail())
                 .claim("roles", user.getRole().stream().map(role -> role.getName().name()).toList())
                 .claim("userId", user.getId())
+                .claim("name", user.getName())
                 .issuedAt(new Date(System.currentTimeMillis()))
                 .expiration(new Date(System.currentTimeMillis() + EXPIRATION_TIME_IN_MILLISEC))
                 .signWith(key)
                 .compact();
+    }
+
+    public long getAccessTokenExpirationMs() {
+        return EXPIRATION_TIME_IN_MILLISEC;
     }
 
     public String getUsernameFromToken(String token) {

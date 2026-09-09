@@ -2,10 +2,7 @@ package org.praskanth.controller;
 
 import jakarta.validation.Valid;
 import lombok.RequiredArgsConstructor;
-import org.praskanth.dto.ApiResponse;
-import org.praskanth.dto.RoleUpdateRequest;
-import org.praskanth.dto.UserResponse;
-import org.praskanth.dto.UserUpdateRequest;
+import org.praskanth.dto.*;
 import org.praskanth.entity.SellerProfile;
 import org.praskanth.entity.User;
 import org.praskanth.exception.NotFoundException;
@@ -29,8 +26,8 @@ public class UserController {
     private final UserService userService;
     private final UserRepo userRepo;
 
-    @GetMapping
-    public ResponseEntity<ApiResponse<UserResponse>> getMyProfile(Principal principal){
+    @GetMapping("/profile")
+    public ResponseEntity<ApiResponse<UserResponse>> getUserProfile(Principal principal){
         validatePrincipal(principal);
         UserResponse userResponse = userService.getCurrentUserProfile(principal.getName());
         return ResponseEntity.ok(ApiResponse.success("User profile fetched successfully", userResponse));
@@ -107,6 +104,15 @@ public class UserController {
         userRepo.save(user);
 
         return ResponseEntity.ok(ApiResponse.success("User account unlocked successfully."));
+    }
+
+    @GetMapping("/allSellers")
+    @PreAuthorize("hasAuthority('ADMIN')")
+    public ResponseEntity<ApiResponse<Page<SellerResponse>>> getAllSellers(@RequestParam(defaultValue = "0") int page,
+                                                                           @RequestParam(defaultValue = "10") int size,
+                                                                           @RequestParam(defaultValue = "id") String sortBy){
+        Page<SellerResponse> allSellers = userService.getAllSellers(PageRequest.of(page, size, Sort.by(sortBy).descending()));
+        return ResponseEntity.ok(ApiResponse.success(allSellers));
     }
 
 

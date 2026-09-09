@@ -16,6 +16,13 @@
         <module>common-library</module>
         <module>event-schemas</module>
         <module>notification-service</module>
+        <module>product-service</module>
+        <module>category-service</module>
+        <module>cart-service</module>
+        <module>inventory-service</module>
+        <module>order-service</module>
+        <module>payment-service</module>
+        <module>shipping-service</module>
     </modules>
     <packaging>pom</packaging>
 

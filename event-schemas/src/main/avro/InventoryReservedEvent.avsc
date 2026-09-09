@@ -1,0 +1,11 @@
+{
+  "type": "record",
+  "name": "InventoryReservedEvent",
+  "namespace": "org.praskanth.events",
+  "doc": "Published by inventory-service once every line item of an order was successfully reserved.",
+  "fields": [
+    {"name": "eventId", "type": "string"},
+    {"name": "orderId", "type": "long"},
+    {"name": "reservedAt", "type": {"type": "long", "logicalType": "timestamp-millis"}}
+  ]
+}

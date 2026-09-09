@@ -8,13 +8,16 @@ import org.praskanth.entity.User;
 import org.praskanth.exception.NotFoundException;
 import org.praskanth.exception.UnauthorizedException;
 import org.praskanth.repository.UserRepo;
-import org.praskanth.security.JwtUtils;
+import org.praskanth.service.RefreshTokenService;
 import org.praskanth.service.RegistrationService;
+import org.praskanth.util.CookieUtils;
+import org.springframework.http.HttpHeaders;
 import org.springframework.http.HttpStatus;
+import org.springframework.http.ResponseCookie;
 import org.springframework.http.ResponseEntity;
-import org.springframework.security.crypto.password.PasswordEncoder;
 import org.springframework.web.bind.annotation.*;
 
+import java.util.Map;
 import java.util.stream.Collectors;
 
 @RestController
@@ -24,8 +27,8 @@ public class AuthController {
 
     private final RegistrationService registrationService;
     private final UserRepo userRepo;
-    private final PasswordEncoder passwordEncoder;
-    private final JwtUtils jwtUtils;
+    private final RefreshTokenService refreshTokenService;
+    private final CookieUtils cookieUtils;
 
     @PostMapping("/register/initiate")
     public ResponseEntity<ApiResponse<Void>> initiate(@Valid @RequestBody RegisterInitiateRequest request) {
@@ -48,9 +51,44 @@ public class AuthController {
     @PostMapping("/login")
     public ResponseEntity<ApiResponse<LoginResponse>> login(@Valid @RequestBody LoginRequest request) {
 
-        LoginResponse response = registrationService.login(request);
+        Map<String, Object> result = registrationService.login(request);
+        LoginResponse response = (LoginResponse) result.get("response");
+        String refreshToken = (String) result.get("refreshToken");
 
-        return ResponseEntity.ok(ApiResponse.success(response));
+        ResponseCookie responseCookie = cookieUtils.createRefreshTokenCookie(refreshToken, refreshTokenService.getRefreshTokenDuration());
+
+        return ResponseEntity.ok().header(HttpHeaders.SET_COOKIE, responseCookie.toString())
+                .body(ApiResponse.success("Login Successful", response));
+    }
+
+    @PostMapping("/refresh")
+    public ResponseEntity<ApiResponse<RefreshTokenResponse>> refreshToken(
+            @CookieValue(name = CookieUtils.REFRESH_TOKEN_COOKIE_NAME, required = false) String refreshToken) {
+
+        Map<String, Object> result = registrationService.refreshAccessToken(refreshToken);
+        RefreshTokenResponse response = (RefreshTokenResponse) result.get("response");
+        String newRefreshToken = (String) result.get("newRefreshToken");
+
+        ResponseCookie rotatedCookie = cookieUtils.createRefreshTokenCookie(
+                newRefreshToken,
+                refreshTokenService.getRefreshTokenDuration()
+        );
+
+        return ResponseEntity.ok()
+                .header(HttpHeaders.SET_COOKIE, rotatedCookie.toString())
+                .body(ApiResponse.success("Token refreshed successfully", response));
+    }
+
+    @PostMapping("/logout")
+    public ResponseEntity<ApiResponse<String>> logout(
+            @CookieValue(name = CookieUtils.REFRESH_TOKEN_COOKIE_NAME, required = false) String refreshToken) {
+
+        registrationService.logout(refreshToken);
+        ResponseCookie clearCookie = cookieUtils.deleteRefreshTokenCookie();
+
+        return ResponseEntity.ok()
+                .header(HttpHeaders.SET_COOKIE, clearCookie.toString())
+                .body(ApiResponse.success("Logged out successfully"));
     }
 
     @GetMapping("/me")

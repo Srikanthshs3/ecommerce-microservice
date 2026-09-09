@@ -1,27 +1,78 @@
 global:
-    scrape_interval:     10s
-    evaluation_interval: 10s
+  scrape_interval: 10s
+  evaluation_interval: 10s
 
 scrape_configs:
   - job_name: 'prometheus'
     static_configs:
       - targets: ['localhost:9090']
+
   - job_name: 'api_gateway'
     metrics_path: '/actuator/prometheus'
     static_configs:
       - targets: ['api-gateway:2323']
         labels:
           application: 'API Gateway Application'
+
   - job_name: 'user_service'
     metrics_path: '/actuator/prometheus'
     static_configs:
-      - targets: ['user-service:2323']
+      - targets: ['user-service:2311']
         labels:
           application: 'User Service Application'
-  - job_name: 'notification-service'
+
+  - job_name: 'notification_service'
     metrics_path: '/actuator/prometheus'
     static_configs:
-      - targets: [ 'notification-service:2323' ]
+      - targets: ['notification-service:2312']
         labels:
-          application: 'notification Service Application'
+          application: 'Notification Service Application'
 
+  - job_name: 'product_service'
+    metrics_path: '/actuator/prometheus'
+    static_configs:
+      - targets: ['product-service:2313']
+        labels:
+          application: 'Product Service Application'
+
+  - job_name: 'category_service'
+    metrics_path: '/actuator/prometheus'
+    static_configs:
+      - targets: ['category-service:2314']
+        labels:
+          application: 'Category Service Application'
+
+  - job_name: 'cart_service'
+    metrics_path: '/actuator/prometheus'
+    static_configs:
+      - targets: ['cart-service:2315']
+        labels:
+          application: 'Cart Service Application'
+
+  - job_name: 'inventory_service'
+    metrics_path: '/actuator/prometheus'
+    static_configs:
+      - targets: ['inventory-service:2316']
+        labels:
+          application: 'Inventory Service Application'
+
+  - job_name: 'order_service'
+    metrics_path: '/actuator/prometheus'
+    static_configs:
+      - targets: ['order-service:2317']
+        labels:
+          application: 'Order Service Application'
+
+  - job_name: 'payment_service'
+    metrics_path: '/actuator/prometheus'
+    static_configs:
+      - targets: ['payment-service:2318']
+        labels:
+          application: 'Payment Service Application'
+
+  - job_name: 'shipping_service'
+    metrics_path: '/actuator/prometheus'
+    static_configs:
+      - targets: ['shipping-service:2319']
+        labels:
+          application: 'Shipping Service Application'

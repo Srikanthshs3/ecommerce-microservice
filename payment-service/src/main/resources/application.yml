@@ -1,0 +1,22 @@
+server:
+  port: 2318
+
+spring:
+  application:
+    name: PAYMENT-SERVICE
+  cloud:
+    config:
+      enabled: true
+  config:
+    import: optional:configserver:${SPRING_CLOUD_CONFIG_URI:http://localhost:8888}
+
+payment:
+  gateway:
+    default: RAZORPAY # Toggle to STRIPE as needed
+
+razorpay:
+  key-id: ${RAZORPAY_KEY_ID:rzp_test_123456}
+  key-secret: ${RAZORPAY_KEY_SECRET:test_secret_123456}
+
+stripe:
+  secret-key: ${STRIPE_SECRET_KEY:sk_test_123456}

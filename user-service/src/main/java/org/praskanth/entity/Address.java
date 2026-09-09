@@ -22,6 +22,10 @@ public class Address {
     @JoinColumn(name = "customer_id")
     private CustomerProfile customerProfile;
 
+    @ManyToOne(fetch = FetchType.LAZY)
+    @JoinColumn(name = "seller_id")
+    private SellerProfile sellerProfile;
+
     private String recipientName;
     private String streetLine1;
     private String streetLine2;
@@ -35,6 +39,6 @@ public class Address {
     private AddressType addressType;
 
     public enum AddressType {
-        SHIPPING, BILLING
+        SHIPPING, BILLING, PICKUP
     }
 }

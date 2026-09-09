@@ -1,0 +1,13 @@
+{
+  "type": "record",
+  "name": "PaymentCompletedEvent",
+  "namespace": "org.praskanth.events",
+  "doc": "Published by payment-service once a charge for an order succeeds.",
+  "fields": [
+    {"name": "eventId", "type": "string"},
+    {"name": "orderId", "type": "long"},
+    {"name": "amount", "type": {"type": "bytes", "logicalType": "decimal", "precision": 12, "scale": 2}},
+    {"name": "transactionId", "type": "string"},
+    {"name": "completedAt", "type": {"type": "long", "logicalType": "timestamp-millis"}}
+  ]
+}

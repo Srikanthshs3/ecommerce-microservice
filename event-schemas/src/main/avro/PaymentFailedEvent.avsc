@@ -1,0 +1,12 @@
+{
+  "type": "record",
+  "name": "PaymentFailedEvent",
+  "namespace": "org.praskanth.events",
+  "doc": "Published by payment-service when a charge fails. Triggers inventory-service to release its reservation for this order (compensating action).",
+  "fields": [
+    {"name": "eventId", "type": "string"},
+    {"name": "orderId", "type": "long"},
+    {"name": "reason", "type": "string"},
+    {"name": "failedAt", "type": {"type": "long", "logicalType": "timestamp-millis"}}
+  ]
+}
