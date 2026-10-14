@@ -8,7 +8,21 @@ spring:
     config:
       enabled: true
   config:
-    import: optional:configserver:${SPRING_CLOUD_CONFIG_URI:http://localhost:8888}
+    # repo-root .env (JWT_SECRET, APP_CRYPTO_KEY ...). Optional: absent in Docker, where compose injects real env vars.
+    import: optional:file:./.env[.properties],optional:file:../.env[.properties],optional:configserver:${SPRING_CLOUD_CONFIG_URI:http://localhost:8888}
+  flyway:
+    enabled: true
+    # This DB already has tables created by Hibernate's ddl-auto: update. baseline-on-migrate
+    # tells Flyway "don't panic that V1 never ran against this DB, just record it as already
+    # being at version 1 and apply anything newer (V2+) from here on" - safe to add onto an
+    # existing DB without dropping/recreating anything.
+    baseline-on-migrate: true
+    baseline-version: 1
+    locations: classpath:db/migration
+
+# IMPORTANT: now that Flyway owns the schema, spring.jpa.hibernate.ddl-auto must be changed
+# from "update" to "validate" in the EXTERNAL config-repo's order-service.yml (config-server
+# values override whatever is set locally here, so it can't be flipped in this file).
 
 user:
   api:

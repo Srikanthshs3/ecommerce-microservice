@@ -8,15 +8,29 @@ spring:
     config:
       enabled: true
   config:
-    import: optional:configserver:${SPRING_CLOUD_CONFIG_URI:http://localhost:8888}
+    # repo-root .env (JWT_SECRET, APP_CRYPTO_KEY, RAZORPAY_KEY_ID ...). Optional: absent in Docker, where
+    # docker-compose.yml injects the same names as real environment variables.
+    import: optional:file:./.env[.properties],optional:file:../.env[.properties],optional:configserver:${SPRING_CLOUD_CONFIG_URI:http://localhost:8888}
+  flyway:
+    enabled: true
+    # Same reasoning as order-service/inventory-service: adopt the existing DB (created by
+    # ddl-auto: update) at "version 1" without requiring a V1 migration, then apply V2+.
+    baseline-on-migrate: true
+    baseline-version: 1
+    locations: classpath:db/migration
+
+# IMPORTANT: now that Flyway owns the schema, spring.jpa.hibernate.ddl-auto must be changed
+# from "update" to "validate" in the EXTERNAL config-repo's payment-service.yml (config-server
+# values override whatever is set locally here, so it can't be flipped in this file).
 
 payment:
   gateway:
     default: RAZORPAY # Toggle to STRIPE as needed
 
+# Empty defaults: the service starts without keys; RazorpayStrategy reports a clear error on first use.
 razorpay:
-  key-id: ${RAZORPAY_KEY_ID:rzp_test_123456}
-  key-secret: ${RAZORPAY_KEY_SECRET:test_secret_123456}
+  key-id: ${RAZORPAY_KEY_ID:}
+  key-secret: ${RAZORPAY_KEY_SECRET:}
 
 stripe:
   secret-key: ${STRIPE_SECRET_KEY:sk_test_123456}

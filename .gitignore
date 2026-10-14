@@ -46,3 +46,7 @@ build/
 
 # Environment files containing secrets
 *.env
+
+### Local secrets (never commit) ###
+.env
+.env.local

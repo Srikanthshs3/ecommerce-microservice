@@ -2,8 +2,6 @@ package org.praskanth.kafka;
 
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
-import org.praskanth.entity.User;
-import org.praskanth.enums.UserRole;
 import org.praskanth.events.PasswordResetEvent;
 import org.praskanth.events.SendOtpEvent;
 import org.praskanth.events.UserRegisteredEvent;
@@ -25,28 +23,23 @@ public class UserEventProducer {
 
     private final KafkaTemplate<String, Object> kafkaTemplate;
 
-    public void publishUserRegistered(User user) {
-        String primaryRole = user.getRole().stream()
-                .findFirst()
-                .map(role -> role.getName().name())
-                .orElse(UserRole.CUSTOMER.name());
-
+    public void publishUserRegistered(Long userId, String email, String name, String role) {
         UserRegisteredEvent event = UserRegisteredEvent.newBuilder()
                 .setEventId(UUID.randomUUID().toString())
-                .setUserId(user.getId())
-                .setEmail(user.getEmail())
-                .setName(user.getName())
-                .setRole(primaryRole)
+                .setUserId(userId)
+                .setEmail(email)
+                .setName(name)
+                .setRole(role)
                 .setRegisteredAt(Instant.now())
                 .build();
 
-        kafkaTemplate.send(TOPIC, String.valueOf(user.getId()), event)
+        kafkaTemplate.send(TOPIC, String.valueOf(userId), event)
                 .whenComplete((result, ex) -> {
                     if (ex != null) {
-                        log.error("Failed to publish UserRegisteredEvent for user {}", user.getId(), ex);
+                        log.error("Failed to publish UserRegisteredEvent for user {}", userId, ex);
                     } else {
                         log.info("Published UserRegisteredEvent eventId={} for user {} to partition {} offset {}",
-                                event.getEventId(), user.getId(),
+                                event.getEventId(), userId,
                                 result.getRecordMetadata().partition(),
                                 result.getRecordMetadata().offset());
                     }
@@ -59,9 +52,8 @@ public class UserEventProducer {
                 .setEmail(email)
                 .setOtp(otp)
                 .build();
-        System.out.println("Publishing SendOtpEmailEvent for email " + email + " with OTP " + otp);
         // Keyed by email to ensure OTPs for the same user process in order
-        kafkaTemplate.send(NOTIFICATION_TOPIC, emailEvent)
+        kafkaTemplate.send(NOTIFICATION_TOPIC, email, emailEvent)
                 .whenComplete((result, ex) -> {
                     if (ex != null) {
                         log.error("Failed to publish SendOtpEmailEvent for email {}", email, ex);

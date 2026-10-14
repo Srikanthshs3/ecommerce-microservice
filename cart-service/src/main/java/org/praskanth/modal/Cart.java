@@ -32,6 +32,8 @@ public class Cart {
     private BigDecimal totalMrpPrice;
     private BigDecimal discount;
     private String couponCode;
+    /** Amount (not percent) taken off by couponCode; recomputed on every cart change. null/0 = no coupon. */
+    private BigDecimal couponDiscount;
     @Builder.Default
     private Instant updatedAt = Instant.now();
 

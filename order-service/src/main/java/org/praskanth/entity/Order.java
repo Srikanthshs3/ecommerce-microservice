@@ -55,6 +55,17 @@ public class Order {
 
     private Integer discount;
 
+    /** Coupon used on this checkout (null = none) and this order's share of its discount, in money. */
+    @Column(length = 50)
+    private String couponCode;
+
+    @Column(precision = 12, scale = 2)
+    private BigDecimal couponDiscount;
+
+    /** Id shared by all orders created by one "Place order" click (one per seller); links them to ONE coupon redemption. */
+    @Column(length = 64)
+    private String checkoutRef;
+
     @Column(nullable = false, updatable = false)
     private Instant createdAt;
 

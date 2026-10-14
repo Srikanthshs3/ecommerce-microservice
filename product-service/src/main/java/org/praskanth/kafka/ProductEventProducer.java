@@ -29,6 +29,7 @@ public class ProductEventProducer {
                 .setSellerId(product.getSellerId())
                 .setCategoryId(product.getCategoryId())
                 .setPrice(toByteBuffer(product.getMrpPrice()))
+                .setInitialStock(product.getStock() == null ? 0 : Math.max(0, product.getStock()))
                 .setCreatedAt(product.getCreatedAt() != null ? product.getCreatedAt() : Instant.now())
                 .build();
 

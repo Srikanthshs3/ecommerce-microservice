@@ -12,7 +12,7 @@
     <artifactId>user-service</artifactId>
     <packaging>jar</packaging>
     <name>user-service</name>
-    <description>User registration (email-verified via Redis OTP), auth, and JWT issuance. MySQL-backed.</description>
+    <description>Customer and seller registration (email-verified via Redis OTP), authentication, authorization and JWT issuance. MySQL-backed.</description>
 
     <dependencies>
         <dependency>
@@ -144,11 +144,6 @@
             <artifactId>springdoc-openapi-starter-webmvc-ui</artifactId>
             <version>2.7.0</version>
         </dependency>
-        <dependency>
-            <groupId>org.springframework.boot</groupId>
-            <artifactId>spring-boot-autoconfigure</artifactId>
-            <version>3.4.0</version>
-        </dependency>
     </dependencies>
 
     <build>
@@ -156,6 +151,15 @@
             <plugin>
                 <groupId>org.springframework.boot</groupId>
                 <artifactId>spring-boot-maven-plugin</artifactId>
+            </plugin>
+            <plugin>
+                <groupId>org.apache.maven.plugins</groupId>
+                <artifactId>maven-compiler-plugin</artifactId>
+                <configuration>
+                    <source>21</source>
+                    <target>21</target>
+                    <release>21</release>
+                </configuration>
             </plugin>
         </plugins>
     </build>

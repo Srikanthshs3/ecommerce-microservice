@@ -5,11 +5,13 @@ import org.praskanth.dto.ApiResponse;
 import org.praskanth.dto.OrderRequest;
 import org.praskanth.dto.OrderResponse;
 import org.praskanth.dto.UserResponse;
+import org.praskanth.security.gateway.GatewayUser;
 import org.praskanth.service.OrderService;
 import jakarta.validation.Valid;
 import lombok.RequiredArgsConstructor;
 import org.springframework.http.HttpStatus;
 import org.springframework.http.ResponseEntity;
+import org.springframework.security.core.annotation.AuthenticationPrincipal;
 import org.springframework.web.bind.annotation.*;
 
 import java.util.List;
@@ -24,12 +26,13 @@ public class OrderController {
 
     @PostMapping
     public ResponseEntity<ApiResponse<List<OrderResponse>>> create(@Valid @RequestBody OrderRequest request,
-                                                             @RequestHeader("Authorization") String jwt) {
-        ApiResponse<UserResponse> apiResponse = userApiCall.getUserProfile(jwt);
-        UserResponse user = apiResponse.getData();
-        request.setUserId(user.getId());
+                                                                   @AuthenticationPrincipal GatewayUser caller) {
+        // Who is calling: the gateway-verified identity. Addresses are mutable data owned by user-service, so the
+        // current profile is fetched (the identity headers are propagated automatically) rather than trusted from a token.
+        UserResponse user = userApiCall.getUserProfile().getData();
+        request.setUserId(caller.id());
 
-        List<OrderResponse> response = orderService.create(request, user, jwt);
+        List<OrderResponse> response = orderService.create(request, user);
         return ResponseEntity.status(HttpStatus.CREATED).body(ApiResponse.success("Order created", response));
     }
 

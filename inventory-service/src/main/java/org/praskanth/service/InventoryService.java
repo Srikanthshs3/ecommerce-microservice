@@ -6,6 +6,9 @@ import org.praskanth.entity.Inventory;
 import org.praskanth.entity.OrderReservation;
 import org.praskanth.exception.ConflictException;
 import org.praskanth.exception.NotFoundException;
+import org.praskanth.outbox.InventoryReservationFailedFields;
+import org.praskanth.outbox.InventoryReservedFields;
+import org.praskanth.outbox.OutboxEventWriter;
 import org.praskanth.repository.InventoryRepository;
 import org.praskanth.repository.OrderReservationRepository;
 import lombok.RequiredArgsConstructor;
@@ -31,13 +34,22 @@ import java.util.List;
 public class InventoryService {
 
     private static final int MAX_RETRIES = 3;
+    private static final String INVENTORY_RESERVED_TOPIC = "inventory.reserved";
+    private static final String INVENTORY_RESERVATION_FAILED_TOPIC = "inventory.reservation-failed";
 
     private final InventoryRepository inventoryRepository;
     private final OrderReservationRepository orderReservationRepository;
+    private final OutboxEventWriter outboxEventWriter;
 
-    /** Called by the Kafka consumer when a new product is created - starts every product at zero stock. */
+    /** Kept for callers that do not know an initial quantity: starts at zero. */
     @Transactional
     public void provisionIfAbsent(String productId, String productName, Long sellerId) {
+        provisionIfAbsent(productId, productName, sellerId, 0);
+    }
+
+    /** Called by the Kafka consumer when a new product is created: starts the stock row at the seller's initial quantity. */
+    @Transactional
+    public void provisionIfAbsent(String productId, String productName, Long sellerId, int initialStock) {
         if (inventoryRepository.existsByProductId(productId)) {
             log.debug("Inventory record already exists for productId={}", productId);
             return;
@@ -46,12 +58,12 @@ public class InventoryService {
                 .productId(productId)
                 .productName(productName)
                 .sellerId(sellerId)
-                .availableQuantity(0)
+                .availableQuantity(Math.max(0, initialStock))
                 .reservedQuantity(0)
                 .build();
         inventoryRepository.save(inventory);
-        log.info("Provisioned zero-stock inventory row for product {} (name='{}', sellerId={})",
-                productId, productName, sellerId);
+        log.info("Provisioned inventory row for product {} (name='{}', sellerId={}, initialStock={})",
+                productId, productName, sellerId, initialStock);
     }
 
     public InventoryResponse getByProductId(String productId) {
@@ -81,7 +93,15 @@ public class InventoryService {
      * Idempotent via the OrderReservation ledger: if this orderId already has ANY reservation
      * rows, this is a redelivery of an already-processed OrderCreatedEvent, so it's a no-op
      * (on top of the Redis dedup the caller/consumer already did - belt and suspenders).
+     *
+     * "Insufficient stock" is a normal BUSINESS outcome, not an error the caller needs to
+     * handle - this method now records either outcome (reserved or failed) to the outbox
+     * itself, in the same transaction as the reservation rows, instead of throwing
+     * ConflictException back up to the Kafka consumer. That keeps the DB write and "there is
+     * an event to publish" atomic, and means the consumer no longer needs its own
+     * success/failure branching (see OrderCreatedConsumer).
      */
+    @Transactional
     public void reserveForOrder(Long orderId, List<ReservationItem> items) {
         if (orderReservationRepository.existsByOrderId(orderId)) {
             log.info("Order {} already has reservation records, skipping (idempotent no-op)", orderId);
@@ -102,6 +122,13 @@ public class InventoryService {
                 orderReservationRepository.save(reservation);
                 succeeded.add(reservation);
             }
+
+            outboxEventWriter.write(
+                    "InventoryReservedEvent",
+                    INVENTORY_RESERVED_TOPIC,
+                    String.valueOf(orderId),
+                    new InventoryReservedFields(orderId)
+            );
         } catch (ConflictException ex) {
             log.warn("Reservation failed for order {} on product - rolling back {} already-reserved item(s)",
                     orderId, succeeded.size());
@@ -110,7 +137,13 @@ public class InventoryService {
                 reservation.setStatus(OrderReservation.ReservationStatus.RELEASED);
                 orderReservationRepository.save(reservation);
             }
-            throw ex;
+
+            outboxEventWriter.write(
+                    "InventoryReservationFailedEvent",
+                    INVENTORY_RESERVATION_FAILED_TOPIC,
+                    String.valueOf(orderId),
+                    new InventoryReservationFailedFields(orderId, ex.getMessage())
+            );
         }
     }
 

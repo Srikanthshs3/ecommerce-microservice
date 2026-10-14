@@ -3,7 +3,6 @@ package org.praskanth.kafka;
 import org.praskanth.dto.ReservationItem;
 import org.praskanth.events.OrderCreatedEvent;
 import org.praskanth.events.OrderItemPayload;
-import org.praskanth.exception.ConflictException;
 import org.praskanth.service.InventoryService;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
@@ -17,10 +16,14 @@ import java.time.Duration;
 import java.util.List;
 
 /**
- * First Saga step on the inventory side. On success, publishes InventoryReservedEvent; on
- * failure (insufficient stock on any line item - InventoryService.reserveForOrder already
- * rolled back whatever it managed to reserve), publishes InventoryReservationFailedEvent instead.
- * Same Redis-SETNX idempotency pattern used by every consumer in this platform.
+ * First Saga step on the inventory side. InventoryService.reserveForOrder now handles BOTH
+ * outcomes (reserved or insufficient-stock) internally via the outbox - it no longer throws
+ * ConflictException for that normal business case, so this consumer no longer needs to catch
+ * it or call a Kafka producer itself (InventoryEventProducer is now dead code for this path;
+ * see InventoryOutboxPoller). What's left here only guards against genuinely UNEXPECTED
+ * failures (DB connectivity, etc.), which should release the dedup claim and retry/DLQ via the
+ * shared kafkaErrorHandler. Same Redis-SETNX idempotency pattern used by every consumer in
+ * this platform.
  */
 @Component
 @RequiredArgsConstructor
@@ -32,7 +35,6 @@ public class OrderCreatedConsumer {
 
     private final StringRedisTemplate redisTemplate;
     private final InventoryService inventoryService;
-    private final InventoryEventProducer inventoryEventProducer;
 
     @KafkaListener(
             topics = "order.created",
@@ -55,17 +57,9 @@ public class OrderCreatedConsumer {
                     .map(this::toReservationItem)
                     .toList();
 
-            try {
-                inventoryService.reserveForOrder(event.getOrderId(), items);
-                inventoryEventProducer.publishInventoryReserved(event.getOrderId());
-            } catch (ConflictException ex) {
-                inventoryEventProducer.publishInventoryReservationFailed(event.getOrderId(), ex.getMessage());
-            }
-
+            inventoryService.reserveForOrder(event.getOrderId(), items);
             ack.acknowledge();
         } catch (Exception ex) {
-            // Only unexpected errors (not ConflictException, which is a legitimate business
-            // outcome already handled above) release the dedup claim for a retry.
             redisTemplate.delete(dedupKey);
             log.error("Failed processing eventId={} for order={}, releasing dedup claim for retry",
                     event.getEventId(), event.getOrderId(), ex);

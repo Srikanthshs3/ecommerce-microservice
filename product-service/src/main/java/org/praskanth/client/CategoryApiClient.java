@@ -5,6 +5,7 @@ import io.github.resilience4j.retry.annotation.Retry;
 import lombok.RequiredArgsConstructor;
 import org.praskanth.dto.ApiResponse;
 import org.praskanth.dto.CategoryResponse;
+import org.praskanth.exception.ServiceUnavailableException;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import org.springframework.core.ParameterizedTypeReference;
@@ -39,7 +40,7 @@ public class CategoryApiClient {
 
     public ApiResponse<CategoryResponse> fallbackMethod(String id, Throwable throwable) {
         log.error("Category Service call failed for ID {}. Reason: {}", id, throwable.getMessage());
-        throw new RuntimeException("Category Service is temporarily unavailable. Cannot validate category.");
+        throw new ServiceUnavailableException("Category Service is temporarily unavailable. Cannot validate category.", throwable);
     }
 
 

@@ -1,11 +1,13 @@
 package org.praskanth.service;
 
+import org.praskanth.config.CouponApiClient;
 import org.praskanth.config.InventoryApiClient;
 import org.praskanth.config.ProductApiClient;
 import org.praskanth.dto.*;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
 import org.praskanth.exception.BadRequestException;
+import org.praskanth.security.gateway.GatewayUser;
 import org.praskanth.modal.Cart;
 import org.praskanth.modal.CartItem;
 import org.praskanth.repository.CartItemRepository;
@@ -16,7 +18,9 @@ import org.springframework.transaction.annotation.Transactional;
 import java.math.BigDecimal;
 import java.math.RoundingMode;
 import java.util.Collections;
+import java.util.LinkedHashMap;
 import java.util.List;
+import java.util.Map;
 import java.util.stream.Collectors;
 
 @Service
@@ -28,9 +32,10 @@ public class CartService {
     private final ProductApiClient productApiClient;
     private final CartRepository cartRepository;
     private final CartItemRepository cartItemRepository;
+    private final CouponApiClient couponApiClient;
 
     @Transactional
-    public CartItemResponse addItem(UserResponse user, AddItemRequest request) {
+    public CartItemResponse addItem(GatewayUser user, AddItemRequest request) {
         if (!inventoryApiClient.checkAvailability(request.getProductId(), request.getQuantity())) {
             throw new BadRequestException("Requested quantity is out of stock for product: " + request.getProductId());
         }
@@ -58,8 +63,8 @@ public class CartService {
             item.setSellerId(product.getSellerId());
             item.setSize(request.getSize());
             item.setQuantity(request.getQuantity());
-            item.setUserId(user.getId());
-            item.setUserEmail(user.getEmail());
+            item.setUserId(user.id());
+            item.setUserEmail(user.email());
 
             // Set baseline unit prices
             item.setUnitMrpPrice(product.getMrpPrice());
@@ -110,14 +115,95 @@ public class CartService {
         recalculateCartTotals(cart);
     }
 
+    /** Empties the caller's cart. Idempotent: no cart or an already-empty cart is a no-op. Called by order-service after an order is placed. */
+    @Transactional
+    public void clearCart(GatewayUser user) {
+        cartRepository.findByUserId(user.id()).ifPresent(cart -> {
+            cart.getCartItems().clear(); // orphanRemoval deletes the rows
+            cart.setCouponCode(null);
+            cart.setCouponDiscount(BigDecimal.ZERO);
+            recalculateCartTotals(cart);
+        });
+    }
+
+    // ------------------------------------------------------------------ coupons
+
+    /** Applies a coupon to the caller's cart; rejects it with the coupon-service's customer-friendly reason. */
+    @Transactional
+    public CartResponse applyCoupon(GatewayUser user, String code) {
+        Cart cart = getOrCreateCart(user);
+        if (cart.getCartItems().isEmpty()) {
+            throw new BadRequestException("Your cart is empty. Add items before applying a coupon.");
+        }
+        CouponResult result = couponApiClient.validate(code, couponLines(cart));
+        if (!result.isValid()) {
+            throw new BadRequestException(result.getMessage());
+        }
+        cart.setCouponCode(result.getCode());
+        cart.setCouponDiscount(result.getDiscountAmount());
+        cartRepository.save(cart);
+        return toCartResponse(cart);
+    }
+
+    @Transactional
+    public CartResponse removeCoupon(GatewayUser user) {
+        Cart cart = getOrCreateCart(user);
+        dropCoupon(cart);
+        cartRepository.save(cart);
+        return toCartResponse(cart);
+    }
+
+    /**
+     * Re-checks the cart's coupon against the current items (they may have changed, or the coupon may have expired).
+     * Not valid any more -> the coupon is removed. coupon-service unreachable -> keep it, but never discount more than
+     * the cart is worth; order-service validates strictly again at checkout, which is the authoritative check.
+     */
+    private void refreshCoupon(Cart cart) {
+        if (cart.getCouponCode() == null) {
+            cart.setCouponDiscount(BigDecimal.ZERO);
+            return;
+        }
+        if (cart.getCartItems().isEmpty()) {
+            dropCoupon(cart);
+            return;
+        }
+        try {
+            CouponResult result = couponApiClient.validate(cart.getCouponCode(), couponLines(cart));
+            if (result.isValid()) {
+                cart.setCouponDiscount(result.getDiscountAmount());
+            } else {
+                log.info("Coupon {} removed from cart {}: {}", cart.getCouponCode(), cart.getId(), result.getMessage());
+                dropCoupon(cart);
+            }
+        } catch (Exception e) {
+            log.warn("Could not re-check coupon {} ({}); keeping the last known discount", cart.getCouponCode(), e.getMessage());
+            BigDecimal previous = cart.getCouponDiscount() == null ? BigDecimal.ZERO : cart.getCouponDiscount();
+            cart.setCouponDiscount(previous.min(cart.getTotalSellingPrice()));
+        }
+    }
+
+    private void dropCoupon(Cart cart) {
+        cart.setCouponCode(null);
+        cart.setCouponDiscount(BigDecimal.ZERO);
+    }
+
+    /** What the customer would pay per seller: the input coupon-service needs to discount seller-specific coupons correctly. */
+    private List<CouponLine> couponLines(Cart cart) {
+        Map<Long, BigDecimal> bySeller = new LinkedHashMap<>();
+        for (CartItem item : cart.getCartItems()) {
+            bySeller.merge(item.getSellerId(), item.getTotalSellingPrice(), BigDecimal::add);
+        }
+        return bySeller.entrySet().stream().map(e -> new CouponLine(e.getKey(), e.getValue())).toList();
+    }
+
     // --- Helper Methods ---
 
     // Uses .orElseGet() for a much cleaner implementation
-    public Cart getOrCreateCart(UserResponse user) {
-        return cartRepository.findByUserId(user.getId()).orElseGet(() -> {
+    public Cart getOrCreateCart(GatewayUser user) {
+        return cartRepository.findByUserId(user.id()).orElseGet(() -> {
             Cart newCart = new Cart();
-            newCart.setUserId(user.getId());
-            newCart.setUserEmail(user.getEmail());
+            newCart.setUserId(user.id());
+            newCart.setUserEmail(user.email());
             newCart.setTotalMrpPrice(BigDecimal.ZERO);
             newCart.setTotalSellingPrice(BigDecimal.ZERO);
             newCart.setTotalItems(0);
@@ -125,8 +211,12 @@ public class CartService {
         });
     }
 
-    public CartResponse getUserCart(UserResponse user) {
+    public CartResponse getUserCart(GatewayUser user) {
         Cart cart = getOrCreateCart(user);
+        if (cart.getCouponCode() != null) { // keep the shown discount honest (items changed / coupon expired)
+            refreshCoupon(cart);
+            cartRepository.save(cart);
+        }
         return toCartResponse(cart);
     }
 
@@ -145,6 +235,7 @@ public class CartService {
         cart.setTotalSellingPrice(totalSelling);
         cart.setTotalItems(totalItems);
         cart.setDiscount(calculateDiscountPercentage(totalMrp, totalSelling));
+        refreshCoupon(cart);
 
         cartRepository.save(cart);
     }
@@ -171,6 +262,10 @@ public class CartService {
                         .map(this::toCartItemResponse)
                         .collect(Collectors.toList());
 
+        BigDecimal couponDiscount = cart.getCouponDiscount() == null ? BigDecimal.ZERO : cart.getCouponDiscount();
+        BigDecimal selling = cart.getTotalSellingPrice() == null ? BigDecimal.ZERO : cart.getTotalSellingPrice();
+        BigDecimal payable = selling.subtract(couponDiscount).max(BigDecimal.ZERO);
+
         return CartResponse.builder()
                 .id(cart.getId())
                 .userId(cart.getUserId())
@@ -181,6 +276,8 @@ public class CartService {
                 .totalItems(cart.getTotalItems())
                 .discount(cart.getDiscount())
                 .couponCode(cart.getCouponCode())
+                .couponDiscount(couponDiscount)
+                .payableAmount(payable)
                 .build();
     }
 

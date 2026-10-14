@@ -4,6 +4,8 @@ import com.fasterxml.jackson.annotation.JsonInclude;
 import lombok.Builder;
 import lombok.Data;
 
+import org.slf4j.MDC;
+
 import java.time.Instant;
 import java.util.List;
 
@@ -19,4 +21,8 @@ public class ErrorResponse {
 
     @Builder.Default
     private Instant timestamp = Instant.now();
+
+    /** Correlates this response with the logs/traces of the request (empty when tracing is off). */
+    @Builder.Default
+    private String traceId = MDC.get("traceId");
 }

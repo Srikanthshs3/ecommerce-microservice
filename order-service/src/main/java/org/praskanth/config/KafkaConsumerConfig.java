@@ -13,6 +13,7 @@ import org.springframework.kafka.config.ConcurrentKafkaListenerContainerFactory;
 import org.springframework.kafka.core.ConsumerFactory;
 import org.springframework.kafka.core.DefaultKafkaConsumerFactory;
 import org.springframework.kafka.listener.ContainerProperties;
+import org.springframework.kafka.listener.DefaultErrorHandler;
 
 import java.util.HashMap;
 import java.util.Map;
@@ -21,6 +22,10 @@ import java.util.Map;
  * order-service is the Saga's status "scoreboard" - it consumes every outcome event to drive
  * its own order.status through the lifecycle (see OrderStatus). Five event types, five distinct
  * ConsumerFactory/container-factory pairs, same reasoning as inventory-service's KafkaConsumerConfig.
+ *
+ * Every factory below wires in the shared `kafkaErrorHandler` bean (from common-library's
+ * KafkaErrorHandlingConfig): retry with backoff, then dead-letter to "<topic>.DLT" instead of
+ * retrying forever or dropping the message.
  */
 @Configuration
 public class KafkaConsumerConfig {
@@ -55,11 +60,13 @@ public class KafkaConsumerConfig {
     }
 
     @Bean
-    public ConcurrentKafkaListenerContainerFactory<String, InventoryReservedEvent> inventoryReservedContainerFactory() {
+    public ConcurrentKafkaListenerContainerFactory<String, InventoryReservedEvent> inventoryReservedContainerFactory(
+            DefaultErrorHandler kafkaErrorHandler) {
         ConcurrentKafkaListenerContainerFactory<String, InventoryReservedEvent> factory =
                 new ConcurrentKafkaListenerContainerFactory<>();
         factory.setConsumerFactory(inventoryReservedConsumerFactory());
         factory.getContainerProperties().setAckMode(ContainerProperties.AckMode.MANUAL_IMMEDIATE);
+        factory.setCommonErrorHandler(kafkaErrorHandler);
         return factory;
     }
 
@@ -71,11 +78,13 @@ public class KafkaConsumerConfig {
     }
 
     @Bean
-    public ConcurrentKafkaListenerContainerFactory<String, InventoryReservationFailedEvent> inventoryReservationFailedContainerFactory() {
+    public ConcurrentKafkaListenerContainerFactory<String, InventoryReservationFailedEvent> inventoryReservationFailedContainerFactory(
+            DefaultErrorHandler kafkaErrorHandler) {
         ConcurrentKafkaListenerContainerFactory<String, InventoryReservationFailedEvent> factory =
                 new ConcurrentKafkaListenerContainerFactory<>();
         factory.setConsumerFactory(inventoryReservationFailedConsumerFactory());
         factory.getContainerProperties().setAckMode(ContainerProperties.AckMode.MANUAL_IMMEDIATE);
+        factory.setCommonErrorHandler(kafkaErrorHandler);
         return factory;
     }
 
@@ -87,11 +96,13 @@ public class KafkaConsumerConfig {
     }
 
     @Bean
-    public ConcurrentKafkaListenerContainerFactory<String, PaymentCompletedEvent> paymentCompletedContainerFactory() {
+    public ConcurrentKafkaListenerContainerFactory<String, PaymentCompletedEvent> paymentCompletedContainerFactory(
+            DefaultErrorHandler kafkaErrorHandler) {
         ConcurrentKafkaListenerContainerFactory<String, PaymentCompletedEvent> factory =
                 new ConcurrentKafkaListenerContainerFactory<>();
         factory.setConsumerFactory(paymentCompletedConsumerFactory());
         factory.getContainerProperties().setAckMode(ContainerProperties.AckMode.MANUAL_IMMEDIATE);
+        factory.setCommonErrorHandler(kafkaErrorHandler);
         return factory;
     }
 
@@ -103,11 +114,13 @@ public class KafkaConsumerConfig {
     }
 
     @Bean
-    public ConcurrentKafkaListenerContainerFactory<String, PaymentFailedEvent> paymentFailedContainerFactory() {
+    public ConcurrentKafkaListenerContainerFactory<String, PaymentFailedEvent> paymentFailedContainerFactory(
+            DefaultErrorHandler kafkaErrorHandler) {
         ConcurrentKafkaListenerContainerFactory<String, PaymentFailedEvent> factory =
                 new ConcurrentKafkaListenerContainerFactory<>();
         factory.setConsumerFactory(paymentFailedConsumerFactory());
         factory.getContainerProperties().setAckMode(ContainerProperties.AckMode.MANUAL_IMMEDIATE);
+        factory.setCommonErrorHandler(kafkaErrorHandler);
         return factory;
     }
 
@@ -119,11 +132,13 @@ public class KafkaConsumerConfig {
     }
 
     @Bean
-    public ConcurrentKafkaListenerContainerFactory<String, ShipmentCreatedEvent> shipmentCreatedContainerFactory() {
+    public ConcurrentKafkaListenerContainerFactory<String, ShipmentCreatedEvent> shipmentCreatedContainerFactory(
+            DefaultErrorHandler kafkaErrorHandler) {
         ConcurrentKafkaListenerContainerFactory<String, ShipmentCreatedEvent> factory =
                 new ConcurrentKafkaListenerContainerFactory<>();
         factory.setConsumerFactory(shipmentCreatedConsumerFactory());
         factory.getContainerProperties().setAckMode(ContainerProperties.AckMode.MANUAL_IMMEDIATE);
+        factory.setCommonErrorHandler(kafkaErrorHandler);
         return factory;
     }
 }

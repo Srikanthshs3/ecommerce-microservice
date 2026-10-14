@@ -4,7 +4,6 @@ import lombok.AllArgsConstructor;
 import lombok.Builder;
 import lombok.Data;
 import lombok.NoArgsConstructor;
-import org.praskanth.entity.Address;
 
 import java.time.Instant;
 import java.util.List;
@@ -18,11 +17,10 @@ public class UserResponse {
     private Long id;
     private String email;
     private String name;
+    private String phoneNumber;
     private Set<String> role;
-    private String kycStatus;   // PENDING, APPROVED, REJECTED, or null for customers
+    private boolean emailVerified;
     private Instant createdAt;
+    /** Null in list views (avoids N+1 loading); populated on single-user reads. */
     private List<AddressResponse> addresses;
-
-    // for role SELLER
-    private String GSTIN;// List of addresses for the user
 }

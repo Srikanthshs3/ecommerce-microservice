@@ -11,6 +11,7 @@
     {"name": "categoryId", "type": "string"},
     {"name": "imageUrl", "type": {"type":"array", "items":"string"}, "default":[], "doc":"List of Product image URLs"},
     {"name": "price", "type": {"type": "bytes", "logicalType": "decimal", "precision": 12, "scale": 2}},
+    {"name": "initialStock", "type": "int", "default": 0, "doc": "Quantity the seller entered at creation; inventory-service starts the stock row with it. Default 0 keeps old messages readable"},
     {"name": "createdAt", "type": {"type": "long", "logicalType": "timestamp-millis"}}
   ]
 }

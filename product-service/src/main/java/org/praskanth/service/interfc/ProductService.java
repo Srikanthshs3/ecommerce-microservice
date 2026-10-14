@@ -1,27 +1,27 @@
 package org.praskanth.service.interfc;
 
-
 import org.praskanth.dto.ProductRequest;
 import org.praskanth.dto.ProductResponse;
+import org.praskanth.security.gateway.GatewayUser;
 
-import java.io.IOException;
 import java.util.List;
 
 public interface ProductService {
 
-    ProductResponse createProduct(ProductRequest request, String role)throws Exception;
+    ProductResponse createProduct(ProductRequest request, String role, List<String> categoryPath);
 
-    ProductResponse updateProduct(String id, ProductRequest request)throws IOException;
+    /** A seller may change only their own products; an admin any. */
+    ProductResponse updateProduct(String id, ProductRequest request, List<String> categoryPath, GatewayUser actor);
 
-    void deleteProduct(String productId);
+    /** A seller may delete only their own products; an admin any. */
+    void deleteProduct(String productId, GatewayUser actor);
 
     ProductResponse getProductById(String id);
 
-    List<ProductResponse> getAllProduct();
+    /** categoryId matches the category AND everything below it. Both filters optional; newest first; capped by limit. */
+    List<ProductResponse> find(String categoryId, String name, int limit);
 
-    //Response getProductsByCategory(Long categoryId);
+    List<ProductResponse> findBySeller(Long sellerId);
 
-    List<ProductResponse> getByCategory(String categoryId);
-
-    List<ProductResponse> search(String name);
+    long countByCategory(String categoryId);
 }

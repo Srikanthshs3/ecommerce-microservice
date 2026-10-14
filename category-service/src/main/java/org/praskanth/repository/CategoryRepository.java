@@ -7,8 +7,27 @@ import java.util.List;
 import java.util.Optional;
 
 public interface CategoryRepository extends MongoRepository<Category, String> {
-    List<Category> findByParentIdIsNull();
-    List<Category> findByParentId(String parentId);
-    Optional<Category> findByName(String name);
-    boolean existsByName(String name);
+
+    /** everything visible in the storefront tree (the service drops nodes below an inactive parent) */
+    List<Category> findByActiveTrueOrderByDisplayOrderAscNameAsc();
+
+    /** admin / seller management view: all nodes, inactive included */
+    List<Category> findAllByOrderByLevelAscDisplayOrderAscNameAsc();
+
+    List<Category> findByParentIdIsNullAndActiveTrueOrderByDisplayOrderAscNameAsc();
+
+    List<Category> findByParentIdAndActiveTrueOrderByDisplayOrderAscNameAsc(String parentId);
+
+    List<Category> findByLevelAndActiveTrueOrderByDisplayOrderAscNameAsc(Integer level);
+
+    List<Category> findByCreatedByOrderByLevelAscNameAsc(Long createdBy);
+
+    /** all descendants of X: X is somewhere in their ancestorIds[] (indexed) */
+    List<Category> findByAncestorIds(String ancestorId);
+
+    Optional<Category> findBySlugPath(String slugPath);
+
+    boolean existsByParentIdAndNameKey(String parentId, String nameKey);
+
+    long countByParentId(String parentId);
 }

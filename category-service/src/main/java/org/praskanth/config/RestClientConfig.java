@@ -13,7 +13,7 @@ import org.springframework.web.service.invoker.HttpServiceProxyFactory;
 @Configuration
 public class RestClientConfig {
 
-    @Value("${user.api.url}")
+    //@Value("${user.api.url}")
     private String userApiUrl;
 
     @Bean

@@ -7,7 +7,9 @@ import org.praskanth.entity.Payment;
 import org.praskanth.entity.PaymentGateway;
 import org.praskanth.entity.PaymentStatus;
 import org.praskanth.gateway.PaymentGatewayStrategy;
-import org.praskanth.kafka.PaymentEventProducer;
+import org.praskanth.outbox.PaymentCompletedFields;
+import org.praskanth.outbox.PaymentFailedFields;
+import org.praskanth.outbox.OutboxEventWriter;
 import org.praskanth.repository.PaymentRepository;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
@@ -35,8 +37,11 @@ import java.util.Map;
 @Slf4j
 public class PaymentService {
 
+    private static final String PAYMENT_COMPLETED_TOPIC = "payment.completed";
+    private static final String PAYMENT_FAILED_TOPIC = "payment.failed";
+
     private final PaymentRepository paymentRepository;
-    private final PaymentEventProducer paymentEventProducer;
+    private final OutboxEventWriter outboxEventWriter;
     private final RestTemplate restTemplate;
     private final Map<PaymentGateway, PaymentGatewayStrategy> gatewayStrategies;
 
@@ -82,8 +87,15 @@ public class PaymentService {
 
             paymentRepository.save(payment);
 
-            // Kafka event for shipment-service
-            paymentEventProducer.publishPaymentCompleted(orderId, amount, transactionId);
+            // Written in the SAME transaction as the Payment row above (OutboxEventWriter is
+            // just a JPA save) so the DB write and "there is an event to publish" are atomic.
+            // PaymentOutboxPoller publishes it to Kafka afterwards, out-of-band.
+            outboxEventWriter.write(
+                    "PaymentCompletedEvent",
+                    PAYMENT_COMPLETED_TOPIC,
+                    String.valueOf(orderId),
+                    new PaymentCompletedFields(orderId, amount, transactionId, Instant.now())
+            );
             log.info("Payment succeeded for order {} amount {} txn {}", orderId, amount, transactionId);
 
         } catch (Exception ex) {
@@ -99,7 +111,9 @@ public class PaymentService {
     }
 
     private BigDecimal lookupOrderAmount(Long orderId) {
-        String url = "http://order-service/api/v1/order/" + orderId;
+        // /internal/** : service-to-service only (not routable via the API gateway). This runs on a Kafka consumer thread,
+        // so there is no user and no identity headers to forward.
+        String url = "http://order-service/internal/v1/orders/" + orderId;
         ResponseEntity<ApiResponse<OrderLookupResponse>> response = restTemplate.exchange(
                 url, HttpMethod.GET, null, new ParameterizedTypeReference<>() {});
 
@@ -122,9 +136,16 @@ public class PaymentService {
 
         paymentRepository.save(payment);
 
-        // Kafka compensating event for inventory & order service
-        paymentEventProducer.publishPaymentFailed(orderId, reason);
-        log.warn("Payment failed event published for order {}: {}", orderId, reason);
+        // Compensating event for inventory & order service - same atomic outbox write as the
+        // success path above (PaymentEventProducer, called directly here before, is now dead
+        // code; see PaymentOutboxPoller).
+        outboxEventWriter.write(
+                "PaymentFailedEvent",
+                PAYMENT_FAILED_TOPIC,
+                String.valueOf(orderId),
+                new PaymentFailedFields(orderId, reason)
+        );
+        log.warn("Payment failed event queued (outbox) for order {}: {}", orderId, reason);
     }
 
     private PaymentResponse toResponse(Payment payment) {

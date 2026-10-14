@@ -29,6 +29,8 @@ public class ProductRequest {
 
     private List<String> imageUrl;
 
+    @NotNull(message = "Selling price is required")
+    @DecimalMin(value = "0.0", inclusive = true, message = "Selling price cannot be negative")
     private BigDecimal sellingPrice;
     private String color;
 

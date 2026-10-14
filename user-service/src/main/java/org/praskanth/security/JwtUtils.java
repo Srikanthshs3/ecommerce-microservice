@@ -1,70 +1,76 @@
 package org.praskanth.security;
 
-
-import io.jsonwebtoken.Claims;
 import io.jsonwebtoken.Jwts;
+import io.jsonwebtoken.security.Keys;
 import jakarta.annotation.PostConstruct;
 import lombok.extern.slf4j.Slf4j;
 import org.praskanth.entity.User;
 import org.springframework.beans.factory.annotation.Value;
-import org.springframework.security.core.userdetails.UserDetails;
-import org.springframework.stereotype.Service;
+import org.springframework.stereotype.Component;
+import org.springframework.util.StringUtils;
 
 import javax.crypto.SecretKey;
-import javax.crypto.spec.SecretKeySpec;
 import java.nio.charset.StandardCharsets;
+import java.time.Duration;
+import java.time.Instant;
 import java.util.Date;
 import java.util.List;
-import java.util.function.Function;
+import java.util.UUID;
 
-@Service
+/**
+ * Issues short-lived access tokens. It does NOT verify them: tokens are verified in exactly one place, the
+ * API gateway (same jwt.secret), which forwards the identity as X-User-* headers.
+ * Claim names (sub=email, userId, name, roles) are the contract the gateway reads; iss and jti are added.
+ */
+@Component
 @Slf4j
 public class JwtUtils {
 
+    @Value("${jwt.secret:}")
+    private String secret;
 
-    // 15 minutes = 900,000 ms
-    private static final long EXPIRATION_TIME_IN_MILLISEC = 15L * 60L * 1000L;
+    /** Legacy property name, still honoured so an existing config-server entry keeps working. */
+    @Value("${secreteJwtString:}")
+    private String legacySecret;
+
+    @Value("${jwt.access-expiration-minutes:15}")
+    private long accessExpirationMinutes;
+
+    @Value("${jwt.issuer:ecommerce-user-service}")
+    private String issuer;
+
     private SecretKey key;
 
-    @Value("${secreteJwtString}")
-    private String secreteJwtString; //Make sure the value in the application properties is 32characters or long
-
     @PostConstruct
-    private void init() {
-        byte[] keyBytes = secreteJwtString.getBytes(StandardCharsets.UTF_8);
-        this.key = new SecretKeySpec(keyBytes, "HmacSHA256");
+    void init() {
+        String effective = StringUtils.hasText(secret) ? secret : legacySecret;
+        if (!StringUtils.hasText(effective)) {
+            throw new IllegalStateException("JWT secret is not configured (set jwt.secret / JWT_SECRET)");
+        }
+        byte[] bytes = effective.getBytes(StandardCharsets.UTF_8);
+        if (bytes.length < 32) {
+            throw new IllegalStateException("JWT secret must be at least 32 bytes long");
+        }
+        this.key = Keys.hmacShaKeyFor(bytes);
     }
 
-    public String generateToken(User user) {
+    public String generateAccessToken(User user) {
+        Instant now = Instant.now();
+        List<String> roles = user.getRole().stream().map(r -> r.getName().name()).toList();
         return Jwts.builder()
+                .id(UUID.randomUUID().toString())
+                .issuer(issuer)
                 .subject(user.getEmail())
-                .claim("roles", user.getRole().stream().map(role -> role.getName().name()).toList())
                 .claim("userId", user.getId())
                 .claim("name", user.getName())
-                .issuedAt(new Date(System.currentTimeMillis()))
-                .expiration(new Date(System.currentTimeMillis() + EXPIRATION_TIME_IN_MILLISEC))
+                .claim("roles", roles)
+                .issuedAt(Date.from(now))
+                .expiration(Date.from(now.plus(Duration.ofMinutes(accessExpirationMinutes))))
                 .signWith(key)
                 .compact();
     }
 
-    public long getAccessTokenExpirationMs() {
-        return EXPIRATION_TIME_IN_MILLISEC;
-    }
-
-    public String getUsernameFromToken(String token) {
-        return extractClaims(token, Claims::getSubject);
-    }
-
-    private <T> T extractClaims(String token, Function<Claims, T> claimsTFunction) {
-        return claimsTFunction.apply(Jwts.parser().verifyWith(key).build().parseSignedClaims(token).getPayload());
-    }
-
-    public boolean isTokenValid(String token, UserDetails userDetails) {
-        final String username = getUsernameFromToken(token);
-        return (username.equals(userDetails.getUsername()) && !isTokenExpired(token));
-    }
-
-    private boolean isTokenExpired(String token) {
-        return extractClaims(token, Claims::getExpiration).before(new Date());
+    public long getAccessTokenExpirationSeconds() {
+        return Duration.ofMinutes(accessExpirationMinutes).toSeconds();
     }
 }

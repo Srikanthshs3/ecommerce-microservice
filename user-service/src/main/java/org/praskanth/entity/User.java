@@ -2,29 +2,49 @@ package org.praskanth.entity;
 
 import com.fasterxml.jackson.annotation.JsonProperty;
 import jakarta.persistence.*;
-import jakarta.validation.constraints.NotBlank;
 import lombok.AllArgsConstructor;
 import lombok.Builder;
-import lombok.Data;
+import lombok.EqualsAndHashCode;
+import lombok.Getter;
 import lombok.NoArgsConstructor;
-import org.praskanth.enums.UserRole;
+import lombok.Setter;
+import lombok.ToString;
+import org.hibernate.annotations.SQLDelete;
+import org.hibernate.annotations.SQLRestriction;
 
 import java.time.Instant;
 import java.util.HashSet;
 import java.util.Set;
 
-@Data
-@AllArgsConstructor
-@NoArgsConstructor
-@Builder
+/**
+ * Login identity shared by every actor (customer, seller, admin, ...). Role-specific data lives in
+ * CustomerProfile / SellerProfile.
+ *
+ * Deletion is soft: the row is anonymised and hidden (deleted_at) so orders, invoices and audit trails
+ * that reference the user id stay intact while PII is wiped and the email becomes reusable.
+ */
 @Entity
 @Table(name = "users", uniqueConstraints = @UniqueConstraint(columnNames = "email"))
+@SQLDelete(sql = "UPDATE users SET deleted_at = CURRENT_TIMESTAMP(6), account_non_locked = false, password = '', "
+        + "name = NULL, phone_number = NULL, email = CONCAT('deleted-', id, '@deleted.invalid') WHERE id = ?")
+@SQLRestriction("deleted_at IS NULL")
+@Getter
+@Setter
+@NoArgsConstructor
+@AllArgsConstructor
+@Builder
+@EqualsAndHashCode(onlyExplicitlyIncluded = true)
+@ToString(onlyExplicitlyIncluded = true)
 public class User {
+
     @Id
     @GeneratedValue(strategy = GenerationType.IDENTITY)
+    @EqualsAndHashCode.Include
+    @ToString.Include
     private Long id;
 
-    @Column(unique = true, nullable = false)
+    @Column(unique = true, nullable = false, length = 254)
+    @ToString.Include
     private String email;
 
     private String name;
@@ -32,7 +52,6 @@ public class User {
     @Column(unique = true)
     private String phoneNumber;
 
-    @NotBlank(message = "password is required")
     @Column(nullable = false)
     @JsonProperty(access = JsonProperty.Access.WRITE_ONLY)
     private String password;
@@ -48,34 +67,46 @@ public class User {
     @Builder.Default
     private Set<Role> role = new HashSet<>();
 
-    @OneToOne(mappedBy = "user", cascade = CascadeType.ALL)
+    // No REMOVE cascade: deleting a user must never hard-delete the seller/customer profile rows.
+    @OneToOne(mappedBy = "user", cascade = {CascadeType.PERSIST, CascadeType.MERGE})
     private SellerProfile sellerProfile;
 
-    @OneToOne(mappedBy = "user", cascade = CascadeType.ALL)
+    @OneToOne(mappedBy = "user", cascade = {CascadeType.PERSIST, CascadeType.MERGE})
     private CustomerProfile customerProfile;
 
     private Instant createdAt;
     private Instant updatedAt;
 
-    @PrePersist
-    protected void onCreate() { this.createdAt = Instant.now(); }
+    @Column(name = "deleted_at")
+    private Instant deletedAt;
 
-    @PreUpdate
-    protected void onUpdate() { this.updatedAt = Instant.now(); }
-
-    @Column(name = "failed_attempt_count")
-    @Builder.Default
-    private int failedAttemptCount = 0;
-
+    /**
+     * Admin / ban lock. Brute-force lockouts are now temporary and live in Redis (LoginAttemptService).
+     */
     @Column(name = "account_non_locked")
     @Builder.Default
     private boolean accountNonLocked = true;
 
-    // For password reset
-    @Column(name = "reset_token", unique = true)
-    private String resetToken;
+    /**
+     * @deprecated Unused since login throttling moved to Redis. Kept only because the existing column is
+     * NOT NULL; drop it (and this field) in the next schema migration.
+     */
+    @Deprecated
+    @Column(name = "failed_attempt_count")
+    @Builder.Default
+    private int failedAttemptCount = 0;
 
-    @Column(name = "reset_token_expiry")
-    private Instant resetTokenExpiry;
+    @PrePersist
+    protected void onCreate() {
+        this.createdAt = Instant.now();
+    }
 
+    @PreUpdate
+    protected void onUpdate() {
+        this.updatedAt = Instant.now();
+    }
+
+    public boolean hasRole(org.praskanth.enums.UserRole userRole) {
+        return role.stream().anyMatch(r -> r.getName() == userRole);
+    }
 }

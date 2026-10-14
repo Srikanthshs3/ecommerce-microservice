@@ -49,6 +49,20 @@ scrape_configs:
         labels:
           application: 'Cart Service Application'
 
+  - job_name: 'review_service'
+    metrics_path: '/actuator/prometheus'
+    static_configs:
+      - targets: ['review-service:2320']
+        labels:
+          application: 'Review Service Application'
+
+  - job_name: 'coupon_service'
+    metrics_path: '/actuator/prometheus'
+    static_configs:
+      - targets: ['coupon-service:2321']
+        labels:
+          application: 'Coupon Service Application'
+
   - job_name: 'inventory_service'
     metrics_path: '/actuator/prometheus'
     static_configs:

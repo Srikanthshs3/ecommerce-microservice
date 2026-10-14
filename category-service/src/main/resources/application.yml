@@ -8,14 +8,21 @@ spring:
     config:
       enabled: true
   config:
-    import: optional:configserver:${SPRING_CLOUD_CONFIG_URI:http://localhost:8888}
+    # repo-root .env (JWT_SECRET, APP_CRYPTO_KEY ...). Optional: absent in Docker, where compose injects real env vars.
+    import: optional:file:./.env[.properties],optional:file:../.env[.properties],optional:configserver:${SPRING_CLOUD_CONFIG_URI:http://localhost:8888}
 
-  #data:
-   # mongodb:
-    #  host: localhost
-     # port: 27017
-      #database: category-service
+  data:
+    mongodb:
+      host: localhost
+      port: 27017
+      database: category-service
+      # creates the unique / compound indexes declared on Category at startup.
+      # (In a locked-down production database, create them with a migration instead and set this to false.)
+      auto-index-creation: true
 
-user:
-  api:
-    url: http://USER-SERVICE
+category:
+  max-level: 3                      # department > category > brand
+  seller-allowed-levels: 1,2,3      # levels a SELLER may create. "3" = sellers only add brands (marketplace style)
+  tree-cache-seconds: 60
+  seed:
+    enabled: ${CATEGORY_SEED_ENABLED:true}   # first run: load the starter taxonomy. Set false once real data exists

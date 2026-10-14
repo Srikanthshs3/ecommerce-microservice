@@ -4,6 +4,8 @@ import jakarta.validation.constraints.Email;
 import jakarta.validation.constraints.NotBlank;
 import jakarta.validation.constraints.NotNull;
 import lombok.Data;
+import org.praskanth.entity.BankDetails;
+import org.praskanth.entity.BusinessDetails;
 import org.praskanth.enums.UserRole;
 
 @Data
@@ -30,7 +32,7 @@ public class RegisterCompleteRequest {
     // Required only when role == ROLE_SELLER
     private BankDetails bankDetails = new BankDetails();
 
-    private BusinessDetails  businessDetails = new BusinessDetails();
+    private BusinessDetails businessDetails = new BusinessDetails();
 
     private String GSTIN;
 }

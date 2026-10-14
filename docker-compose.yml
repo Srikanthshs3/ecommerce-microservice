@@ -1,7 +1,78 @@
-version: '3.8'
+# =====================================================================================================
+#  docker-compose.yml  (run from the repo root, next to the .env file)
+#
+#  Secrets: compose reads ./.env and substitutes ${VARS} below. NOTE: .env is only used for substitution,
+#  it is NOT passed to the containers automatically - that is why every secret a service needs is listed
+#  explicitly in its `environment:` block.
+#  Required: JWT_SECRET, APP_CRYPTO_KEY.  For payments: RAZORPAY_KEY_ID, RAZORPAY_KEY_SECRET.  (see .env.example)
+#  Only plain ${VAR} / ${VAR:-default} are used below (no ${VAR:?...}) so older Compose versions work too.
+#
+#  Build order:  mvn clean package -DskipTests        (the Dockerfiles copy target/*.jar from the host)
+#                docker compose up -d --build
+# =====================================================================================================
+
+x-spring-env: &spring-env
+  SPRING_CLOUD_CONFIG_URI: http://config-server:8888
+  SPRING_CONFIG_IMPORT: optional:configserver:http://config-server:8888
+  SPRING_PROFILES_ACTIVE: docker
+  eureka.client.serviceUrl.defaultZone: http://eureka-server:8761/eureka/
+  EUREKA_HOST: eureka-server
+  MANAGEMENT_ZIPKIN_TRACING_ENDPOINT: http://tempo:9411/api/v2/spans
+  LOKI_URL: http://loki:3100/loki/api/v1/push
+  # Same value in the gateway and every service (empty = unsigned identity headers, a warning is logged).
+  GATEWAY_IDENTITY_SIGNING_SECRET: ${GATEWAY_IDENTITY_SIGNING_SECRET:-}
+
+# Environment building blocks. Each one extends the previous with a single merge key
+# (a merge key given a LIST of anchors is valid for Docker but IntelliJ reports "Single value is expected").
+x-env-kafka: &env-kafka
+  <<: *spring-env
+  SPRING_KAFKA_BOOTSTRAP_SERVERS: broker:29092
+  SPRING_KAFKA_PROPERTIES_SCHEMA_REGISTRY_URL: http://schema-registry:8081
+
+x-env-kafka-redis: &env-kafka-redis
+  <<: *env-kafka
+  SPRING_DATA_REDIS_HOST: redis
+  SPRING_DATA_REDIS_PORT: "6379"
+
+x-env-mysql: &env-mysql                       # kafka + MySQL (no Redis)
+  <<: *env-kafka
+  SPRING_DATASOURCE_USERNAME: root
+  SPRING_DATASOURCE_PASSWORD: ${DB_PASSWORD:-Admin@123}
+  SPRING_JPA_HIBERNATE_DDL_AUTO: update
+
+x-env-mysql-redis: &env-mysql-redis           # kafka + Redis + MySQL
+  <<: *env-kafka-redis
+  SPRING_DATASOURCE_USERNAME: root
+  SPRING_DATASOURCE_PASSWORD: ${DB_PASSWORD:-Admin@123}
+  SPRING_JPA_HIBERNATE_DDL_AUTO: update
+
+x-env-postgres-redis: &env-postgres-redis     # kafka + Redis + Postgres
+  <<: *env-kafka-redis
+  SPRING_DATASOURCE_USERNAME: postgres
+  SPRING_DATASOURCE_PASSWORD: ${DB_PASSWORD:-Admin@123}
+  SPRING_JPA_HIBERNATE_DDL_AUTO: update
+  SPRING_JPA_PROPERTIES_HIBERNATE_DIALECT: org.hibernate.dialect.PostgreSQLDialect
+
+# Settings every Spring Boot service shares
+x-service: &service
+  restart: on-failure          # a service that starts before its dependency is ready just retries
+  pull_policy: build           # always use the image built from THIS folder (never a stale one from Docker Hub)
+  networks:
+    - ecom-net
+
+x-after-platform: &after-platform
+  eureka-server:
+    condition: service_started
+  config-server:
+    condition: service_healthy
+  broker:
+    condition: service_started
+  schema-registry:
+    condition: service_started
 
 services:
 
+  # ------------------------------------------------------------------------------------ data stores
   redis:
     image: redis:7.0
     container_name: redis
@@ -24,18 +95,17 @@ services:
     ports:
       - "3307:3306"
     environment:
-      MYSQL_ROOT_USER: root
-      MYSQL_ROOT_PASSWORD: Admin@123
+      MYSQL_ROOT_PASSWORD: ${DB_PASSWORD:-Admin@123}
     volumes:
       - mysql-data:/var/lib/mysql
     networks:
       - ecom-net
     restart: unless-stopped
     healthcheck:
-      test: [ "CMD", "mysqladmin", "ping", "-h", "localhost", "-uroot", "-pAdmin@123" ]
+      test: [ "CMD-SHELL", "mysqladmin ping -h localhost -uroot -p$$MYSQL_ROOT_PASSWORD --silent" ]
       interval: 5s
       timeout: 5s
-      retries: 10
+      retries: 20
 
   mongodb:
     image: mongo:7.0
@@ -59,7 +129,7 @@ services:
     restart: unless-stopped
     environment:
       POSTGRES_USER: postgres
-      POSTGRES_PASSWORD: Admin@123
+      POSTGRES_PASSWORD: ${DB_PASSWORD:-Admin@123}
     ports:
       - "5432:5432"
     volumes:
@@ -73,6 +143,7 @@ services:
       timeout: 5s
       retries: 10
 
+  # ------------------------------------------------------------------------------------ Kafka
   zookeeper:
     image: confluentinc/cp-zookeeper:7.5.0
     hostname: zookeeper
@@ -141,14 +212,14 @@ services:
     networks:
       - ecom-net
 
-
+  # ------------------------------------------------------------------------------------ platform
   eureka-server:
+    <<: *service
     build:
       context: ./eureka-server
       dockerfile: Dockerfile
     image: praskanth/eureka-server:latest
     container_name: eureka-server
-    pull_policy: always
     ports:
       - "8761:8761"
     healthcheck:
@@ -157,18 +228,16 @@ services:
       timeout: 5s
       retries: 5
       start_period: 30s
-    networks:
-      - ecom-net
     environment:
       - SPRING_PROFILES_ACTIVE=docker
 
   config-server:
+    <<: *service
     build:
       context: ./config-server
       dockerfile: Dockerfile
     image: praskanth/config-server:latest
     container_name: config-server
-    restart: unless-stopped
     ports:
       - "8888:8888"
     environment:
@@ -178,8 +247,6 @@ services:
       - EUREKA_CLIENT_FETCH_REGISTRY=false
     depends_on:
       - eureka-server
-    networks:
-      - ecom-net
     healthcheck:
       test: [ "CMD-SHELL", "wget --no-verbose --tries=1 --spider http://localhost:8888/actuator/health || exit 1" ]
       interval: 10s
@@ -188,342 +255,239 @@ services:
       start_period: 40s
 
   api-gateway:
+    <<: *service
     build:
       context: ./api-gateway
       dockerfile: Dockerfile
     image: praskanth/api-gateway:latest
     container_name: api-gateway
-    pull_policy: always
     ports:
       - "2323:2323"
-    networks:
-      - ecom-net
     environment:
-      - SPRING_CLOUD_CONFIG_URI=http://config-server:8888
-      - SPRING_CONFIG_IMPORT=optional:configserver:http://config-server:8888
-      - SPRING_PROFILES_ACTIVE=docker
-      - eureka.client.serviceUrl.defaultZone=http://eureka-server:8761/eureka/
-      - EUREKA_HOST=eureka-server
-      - MANAGEMENT_ZIPKIN_TRACING_ENDPOINT=http://tempo:9411/api/v2/spans
-      - LOKI_URL=http://loki:3100/loki/api/v1/push
+      <<: *spring-env
+      # must be IDENTICAL to user-service's value, otherwise every token is rejected
+      JWT_SECRET: ${JWT_SECRET}
+      JWT_ISSUER: ${JWT_ISSUER:-ecommerce-user-service}
     depends_on:
       eureka-server:
         condition: service_started
       config-server:
         condition: service_healthy
 
+  # ------------------------------------------------------------------------------------ business services
   user-service:
+    <<: *service
     build:
       context: ./user-service
       dockerfile: Dockerfile
     container_name: user-service
     image: praskanth/user-service:latest
-    pull_policy: always
     environment:
-      - SPRING_CLOUD_CONFIG_URI=http://config-server:8888
-      - SPRING_CONFIG_IMPORT=optional:configserver:http://config-server:8888
-      - SPRING_PROFILES_ACTIVE=docker
-      - SPRING_DATASOURCE_URL=jdbc:mysql://mysql:3306/user_service?createDatabaseIfNotExist=true&useSSL=false&allowPublicKeyRetrieval=true
-      - SPRING_JPA_HIBERNATE_DDL_AUTO=update
-      - SPRING_DATASOURCE_PASSWORD=Admin@123
-      - SPRING_DATA_REDIS_HOST=redis
-      - SPRING_DATA_REDIS_PORT=6379
-      - eureka.client.serviceUrl.defaultZone=http://eureka-server:8761/eureka/
-      - EUREKA_HOST=eureka-server
-      - MANAGEMENT_ZIPKIN_TRACING_ENDPOINT=http://tempo:9411/api/v2/spans
-      - LOKI_URL=http://loki:3100/loki/api/v1/push
-      - SPRING_KAFKA_BOOTSTRAP_SERVERS=broker:29092
-      - SPRING_KAFKA_PROPERTIES_SCHEMA_REGISTRY_URL=http://schema-registry:8081
-    networks:
-      - ecom-net
+      <<: *env-mysql-redis
+      SPRING_DATASOURCE_URL: jdbc:mysql://mysql:3306/user_service?createDatabaseIfNotExist=true&useSSL=false&allowPublicKeyRetrieval=true
+      JWT_SECRET: ${JWT_SECRET}
+      JWT_ISSUER: ${JWT_ISSUER:-ecommerce-user-service}
+      BOOTSTRAP_ADMIN_EMAIL: ${BOOTSTRAP_ADMIN_EMAIL:-}
+      BOOTSTRAP_ADMIN_PASSWORD: ${BOOTSTRAP_ADMIN_PASSWORD:-}
+      BOOTSTRAP_ADMIN_NAME: ${BOOTSTRAP_ADMIN_NAME:-Admin}
+      # AES-256 key (base64 of 32 bytes) for the encrypted DB columns. This is the value the crash was asking for.
+      APP_CRYPTO_KEY: ${APP_CRYPTO_KEY}
+      COOKIE_SECURE: ${COOKIE_SECURE:-false}
     depends_on:
-      eureka-server:
-        condition: service_started
-      config-server:
+      <<: *after-platform
+      mysql:
         condition: service_healthy
-      broker:
-        condition: service_started
-      schema-registry:
-        condition: service_started
+      redis:
+        condition: service_healthy
 
   cart-service:
+    <<: *service
     build:
       context: ./cart-service
       dockerfile: Dockerfile
     container_name: cart-service
     image: praskanth/cart-service:latest
-    pull_policy: always
     environment:
-      - SPRING_CLOUD_CONFIG_URI=http://config-server:8888
-      - SPRING_CONFIG_IMPORT=optional:configserver:http://config-server:8888
-      - SPRING_PROFILES_ACTIVE=docker
-      - SPRING_DATASOURCE_URL=jdbc:mysql://mysql:3306/cart_db?createDatabaseIfNotExist=true&useSSL=false&allowPublicKeyRetrieval=true
-      - SPRING_JPA_HIBERNATE_DDL_AUTO=update
-      - SPRING_DATASOURCE_PASSWORD=Admin@123
-      - SPRING_DATA_REDIS_HOST=redis
-      - SPRING_DATA_REDIS_PORT=6379
-      - eureka.client.serviceUrl.defaultZone=http://eureka-server:8761/eureka/
-      - EUREKA_HOST=eureka-server
-      - MANAGEMENT_ZIPKIN_TRACING_ENDPOINT=http://tempo:9411/api/v2/spans
-      - LOKI_URL=http://loki:3100/loki/api/v1/push
-      - SPRING_KAFKA_BOOTSTRAP_SERVERS=broker:29092
-      - SPRING_KAFKA_PROPERTIES_SCHEMA_REGISTRY_URL=http://schema-registry:8081
-    networks:
-      - ecom-net
+      <<: *env-mysql-redis
+      SPRING_DATASOURCE_URL: jdbc:mysql://mysql:3306/cart_db?createDatabaseIfNotExist=true&useSSL=false&allowPublicKeyRetrieval=true
     depends_on:
-      eureka-server:
-        condition: service_started
-      config-server:
+      <<: *after-platform
+      mysql:
         condition: service_healthy
-      broker:
-        condition: service_started
-      schema-registry:
-        condition: service_started
+      redis:
+        condition: service_healthy
 
   inventory-service:
+    <<: *service
     build:
       context: ./inventory-service
       dockerfile: Dockerfile
     container_name: inventory-service
     image: praskanth/inventory-service:latest
-    pull_policy: always
     environment:
-      - SPRING_CLOUD_CONFIG_URI=http://config-server:8888
-      - SPRING_CONFIG_IMPORT=optional:configserver:http://config-server:8888
-      - SPRING_PROFILES_ACTIVE=docker
-      - SPRING_DATASOURCE_URL=jdbc:mysql://mysql:3306/inventory_db?createDatabaseIfNotExist=true&useSSL=false&allowPublicKeyRetrieval=true
-      - SPRING_JPA_HIBERNATE_DDL_AUTO=update
-      - SPRING_DATASOURCE_PASSWORD=Admin@123
-      - SPRING_DATA_REDIS_HOST=redis
-      - SPRING_DATA_REDIS_PORT=6379
-      - eureka.client.serviceUrl.defaultZone=http://eureka-server:8761/eureka/
-      - EUREKA_HOST=eureka-server
-      - MANAGEMENT_ZIPKIN_TRACING_ENDPOINT=http://tempo:9411/api/v2/spans
-      - LOKI_URL=http://loki:3100/loki/api/v1/push
-      - SPRING_KAFKA_BOOTSTRAP_SERVERS=broker:29092
-      - SPRING_KAFKA_PROPERTIES_SCHEMA_REGISTRY_URL=http://schema-registry:8081
-      - SPRING_KAFKA_CONSUMER_GROUP_ID=inventory-service-group
-    networks:
-      - ecom-net
+      <<: *env-mysql-redis
+      SPRING_DATASOURCE_URL: jdbc:mysql://mysql:3306/inventory_db?createDatabaseIfNotExist=true&useSSL=false&allowPublicKeyRetrieval=true
+      SPRING_KAFKA_CONSUMER_GROUP_ID: inventory-service-group
     depends_on:
-      eureka-server:
-        condition: service_started
-      config-server:
+      <<: *after-platform
+      mysql:
         condition: service_healthy
-      broker:
-        condition: service_started
-      schema-registry:
-        condition: service_started
+      redis:
+        condition: service_healthy
 
   shipping-service:
+    <<: *service
     build:
       context: ./shipping-service
       dockerfile: Dockerfile
     container_name: shipping-service
     image: praskanth/shipping-service:latest
-    pull_policy: always
     environment:
-      - SPRING_CLOUD_CONFIG_URI=http://config-server:8888
-      - SPRING_CONFIG_IMPORT=optional:configserver:http://config-server:8888
-      - SPRING_PROFILES_ACTIVE=docker
-      - SPRING_DATASOURCE_URL=jdbc:mysql://mysql:3306/shipping_db?createDatabaseIfNotExist=true&useSSL=false&allowPublicKeyRetrieval=true
-      - SPRING_JPA_HIBERNATE_DDL_AUTO=update
-      - SPRING_DATASOURCE_PASSWORD=Admin@123
-      - SPRING_DATA_REDIS_HOST=redis
-      - SPRING_DATA_REDIS_PORT=6379
-      - eureka.client.serviceUrl.defaultZone=http://eureka-server:8761/eureka/
-      - EUREKA_HOST=eureka-server
-      - MANAGEMENT_ZIPKIN_TRACING_ENDPOINT=http://tempo:9411/api/v2/spans
-      - LOKI_URL=http://loki:3100/loki/api/v1/push
-      - SPRING_KAFKA_BOOTSTRAP_SERVERS=broker:29092
-      - SPRING_KAFKA_PROPERTIES_SCHEMA_REGISTRY_URL=http://schema-registry:8081
-      - SPRING_KAFKA_CONSUMER_GROUP_ID=shipping-service-group
-    networks:
-      - ecom-net
+      <<: *env-mysql-redis
+      SPRING_DATASOURCE_URL: jdbc:mysql://mysql:3306/shipping_db?createDatabaseIfNotExist=true&useSSL=false&allowPublicKeyRetrieval=true
+      SPRING_KAFKA_CONSUMER_GROUP_ID: shipping-service-group
     depends_on:
-      eureka-server:
-        condition: service_started
-      config-server:
+      <<: *after-platform
+      mysql:
         condition: service_healthy
-      broker:
-        condition: service_started
-      schema-registry:
-        condition: service_started
+      redis:
+        condition: service_healthy
 
   notification-service:
+    <<: *service
     build:
       context: ./notification-service
       dockerfile: Dockerfile
     container_name: notification-service
     image: praskanth/notification-service:latest
-    pull_policy: always
     environment:
-      - SPRING_CLOUD_CONFIG_URI=http://config-server:8888
-      - SPRING_CONFIG_IMPORT=optional:configserver:http://config-server:8888
-      - SPRING_PROFILES_ACTIVE=docker
-      - eureka.client.serviceUrl.defaultZone=http://eureka-server:8761/eureka/
-      - EUREKA_HOST=eureka-server
-      - MANAGEMENT_ZIPKIN_TRACING_ENDPOINT=http://tempo:9411/api/v2/spans
-      - LOKI_URL=http://loki:3100/loki/api/v1/push
-      - SPRING_KAFKA_BOOTSTRAP_SERVERS=broker:29092
-      - SPRING_KAFKA_PROPERTIES_SCHEMA_REGISTRY_URL=http://schema-registry:8081
-      - SPRING_KAFKA_CONSUMER_GROUP_ID=notification-group
-      - SPRING_MAIL_USERNAME=srikanthp0720@gmail.com
-    networks:
-      - ecom-net
+      <<: *env-kafka
+      SPRING_KAFKA_CONSUMER_GROUP_ID: notification-group
+      SPRING_MAIL_USERNAME: srikanthp0720@gmail.com
+      # SPRING_MAIL_PASSWORD normally comes from the config-server repo; to override it, add it to .env and uncomment:
+      # SPRING_MAIL_PASSWORD: ${SPRING_MAIL_PASSWORD}
     depends_on:
-      eureka-server:
-        condition: service_started
-      config-server:
-        condition: service_healthy
-      broker:
-        condition: service_started
-      schema-registry:
-        condition: service_started
+      <<: *after-platform
 
   category-service:
+    <<: *service
     build:
       context: ./category-service
       dockerfile: Dockerfile
     container_name: category-service
     image: praskanth/category-service:latest
-    pull_policy: always
     environment:
-      - SPRING_CLOUD_CONFIG_URI=http://config-server:8888
-      - SPRING_CONFIG_IMPORT=optional:configserver:http://config-server:8888
-      - SPRING_PROFILES_ACTIVE=docker
-      - SPRING_DATA_MONGODB_URI=mongodb://mongodb:27017/category-service
-      - SPRING_DATA_REDIS_HOST=redis
-      - SPRING_DATA_REDIS_PORT=6379
-      - eureka.client.serviceUrl.defaultZone=http://eureka-server:8761/eureka/
-      - EUREKA_HOST=eureka-server
-      - MANAGEMENT_ZIPKIN_TRACING_ENDPOINT=http://tempo:9411/api/v2/spans
-      - LOKI_URL=http://loki:3100/loki/api/v1/push
-      - SPRING_KAFKA_BOOTSTRAP_SERVERS=broker:29092
-      - SPRING_KAFKA_PROPERTIES_SCHEMA_REGISTRY_URL=http://schema-registry:8081
-    networks:
-      - ecom-net
+      <<: *env-kafka-redis
+      SPRING_DATA_MONGODB_URI: mongodb://mongodb:27017/category-service
     depends_on:
-      eureka-server:
-        condition: service_started
-      config-server:
+      <<: *after-platform
+      mongodb:
         condition: service_healthy
-      broker:
-        condition: service_started
-      schema-registry:
-        condition: service_started
+      redis:
+        condition: service_healthy
 
   product-service:
+    <<: *service
     build:
       context: ./product-service
       dockerfile: Dockerfile
     container_name: product-service
     image: praskanth/product-service:latest
-    pull_policy: always
     environment:
-      - SPRING_CLOUD_CONFIG_URI=http://config-server:8888
-      - SPRING_CONFIG_IMPORT=optional:configserver:http://config-server:8888
-      - SPRING_PROFILES_ACTIVE=docker
-      - SPRING_DATA_MONGODB_URI=mongodb://mongodb:27017/product-service
-      - SPRING_DATA_REDIS_HOST=redis
-      - SPRING_DATA_REDIS_PORT=6379
-      - eureka.client.serviceUrl.defaultZone=http://eureka-server:8761/eureka/
-      - EUREKA_HOST=eureka-server
-      - MANAGEMENT_ZIPKIN_TRACING_ENDPOINT=http://tempo:9411/api/v2/spans
-      - LOKI_URL=http://loki:3100/loki/api/v1/push
-      - SPRING_KAFKA_BOOTSTRAP_SERVERS=broker:29092
-      - SPRING_KAFKA_PROPERTIES_SCHEMA_REGISTRY_URL=http://schema-registry:8081
-    networks:
-      - ecom-net
+      <<: *env-kafka-redis
+      SPRING_DATA_MONGODB_URI: mongodb://mongodb:27017/product-service
     depends_on:
-      eureka-server:
-        condition: service_started
-      config-server:
+      <<: *after-platform
+      mongodb:
         condition: service_healthy
-      broker:
-        condition: service_started
-      schema-registry:
-        condition: service_started
+      redis:
+        condition: service_healthy
 
   order-service:
+    <<: *service
     build:
       context: ./order-service
       dockerfile: Dockerfile
     container_name: order-service
     image: praskanth/order-service:latest
-    pull_policy: always
     environment:
-      - SPRING_CLOUD_CONFIG_URI=http://config-server:8888
-      - SPRING_CONFIG_IMPORT=optional:configserver:http://config-server:8888
-      - SPRING_PROFILES_ACTIVE=docker
-      - SPRING_DATASOURCE_URL=jdbc:postgresql://postgres:5432/order_db
-      - SPRING_DATASOURCE_USERNAME=postgres
-      - SPRING_DATASOURCE_PASSWORD=Admin@123
-      - SPRING_JPA_HIBERNATE_DDL_AUTO=update
-      - SPRING_JPA_PROPERTIES_HIBERNATE_DIALECT=org.hibernate.dialect.PostgreSQLDialect
-      - SPRING_DATA_REDIS_HOST=redis
-      - SPRING_DATA_REDIS_PORT=6379
-      - eureka.client.serviceUrl.defaultZone=http://eureka-server:8761/eureka/
-      - EUREKA_HOST=eureka-server
-      - MANAGEMENT_ZIPKIN_TRACING_ENDPOINT=http://tempo:9411/api/v2/spans
-      - LOKI_URL=http://loki:3100/loki/api/v1/push
-      - SPRING_KAFKA_BOOTSTRAP_SERVERS=broker:29092
-      - SPRING_KAFKA_PROPERTIES_SCHEMA_REGISTRY_URL=http://schema-registry:8081
-      - SPRING_KAFKA_CONSUMER_GROUP_ID=order-service-group
-    networks:
-      - ecom-net
+      <<: *env-postgres-redis
+      SPRING_DATASOURCE_URL: jdbc:postgresql://postgres:5432/order_db
+      SPRING_KAFKA_CONSUMER_GROUP_ID: order-service-group
     depends_on:
-      eureka-server:
-        condition: service_started
-      config-server:
+      <<: *after-platform
+      postgres:
         condition: service_healthy
-      broker:
-        condition: service_started
-      schema-registry:
-        condition: service_started
+      redis:
+        condition: service_healthy
 
   payment-service:
+    <<: *service
     build:
       context: ./payment-service
       dockerfile: Dockerfile
     container_name: payment-service
     image: praskanth/payment-service:latest
-    pull_policy: always
     environment:
-      - SPRING_CLOUD_CONFIG_URI=http://config-server:8888
-      - SPRING_CONFIG_IMPORT=optional:configserver:http://config-server:8888
-      - SPRING_PROFILES_ACTIVE=docker
-      - SPRING_DATASOURCE_URL=jdbc:postgresql://postgres:5432/payment_db
-      - SPRING_DATASOURCE_USERNAME=postgres
-      - SPRING_DATASOURCE_PASSWORD=Admin@123
-      - SPRING_JPA_HIBERNATE_DDL_AUTO=update
-      - SPRING_JPA_PROPERTIES_HIBERNATE_DIALECT=org.hibernate.dialect.PostgreSQLDialect
-      - SPRING_DATA_REDIS_HOST=redis
-      - SPRING_DATA_REDIS_PORT=6379
-      - eureka.client.serviceUrl.defaultZone=http://eureka-server:8761/eureka/
-      - EUREKA_HOST=eureka-server
-      - MANAGEMENT_ZIPKIN_TRACING_ENDPOINT=http://tempo:9411/api/v2/spans
-      - LOKI_URL=http://loki:3100/loki/api/v1/push
-      - SPRING_KAFKA_BOOTSTRAP_SERVERS=broker:29092
-      - SPRING_KAFKA_PROPERTIES_SCHEMA_REGISTRY_URL=http://schema-registry:8081
-      - SPRING_KAFKA_CONSUMER_GROUP_ID=payment-service-group
-      - PAYMENT_GATEWAY_DEFAULT=RAZORPAY
-      - PAYMENT_SANDBOX_ENABLED="true"
-      - RAZORPAY_KEY_ID=rzp_test_TXdoEQlWcywtKm
-      - RAZORPAY_KEY_SECRET=i34ckC4w2huIWrCxzB9HqbDh
-    networks:
-      - ecom-net
+      <<: *env-postgres-redis
+      SPRING_DATASOURCE_URL: jdbc:postgresql://postgres:5432/payment_db
+      SPRING_KAFKA_CONSUMER_GROUP_ID: payment-service-group
+      PAYMENT_GATEWAY_DEFAULT: ${PAYMENT_GATEWAY_DEFAULT:-RAZORPAY}
+      PAYMENT_SANDBOX_ENABLED: "true"
+      # Razorpay keys come ONLY from your local .env (never written in this file). Plain ${VAR} on purpose:
+      # old Docker Compose releases mishandle the ${VAR:?message} form and hand the message text to the app.
+      # Empty = the service still starts; a payment attempt then fails with a clear "keys not configured" error.
+      RAZORPAY_KEY_ID: ${RAZORPAY_KEY_ID:-}
+      RAZORPAY_KEY_SECRET: ${RAZORPAY_KEY_SECRET:-}
+      STRIPE_SECRET_KEY: ${STRIPE_SECRET_KEY:-sk_test_123456}   # only used if PAYMENT_GATEWAY_DEFAULT=STRIPE
+    depends_on:
+      <<: *after-platform
+      postgres:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+
+  review-service:
+    <<: *service
+    build:
+      context: ./review-service
+      dockerfile: Dockerfile
+    container_name: review-service
+    image: praskanth/review-service:latest
+    environment:
+      <<: *env-mysql
+      SPRING_DATASOURCE_URL: jdbc:mysql://mysql:3306/review_db?createDatabaseIfNotExist=true&useSSL=false&allowPublicKeyRetrieval=true
+      REVIEW_IMAGE_DIR: /app/uploads/reviews
+      REVIEW_REQUIRE_PURCHASE: "false"
+    volumes:
+      - review_images:/app/uploads/reviews   # uploaded review pictures survive container re-creation
     depends_on:
       eureka-server:
         condition: service_started
       config-server:
         condition: service_healthy
-      broker:
-        condition: service_started
-      schema-registry:
-        condition: service_started
+      mysql:
+        condition: service_healthy
 
-  #Prometheus
+  coupon-service:
+    <<: *service
+    build:
+      context: ./coupon-service
+      dockerfile: Dockerfile
+    container_name: coupon-service
+    image: praskanth/coupon-service:latest
+    environment:
+      <<: *env-mysql
+      SPRING_DATASOURCE_URL: jdbc:mysql://mysql:3306/coupon_db?createDatabaseIfNotExist=true&useSSL=false&allowPublicKeyRetrieval=true
+    depends_on:
+      eureka-server:
+        condition: service_started
+      config-server:
+        condition: service_healthy
+      mysql:
+        condition: service_healthy
+
+  # ------------------------------------------------------------------------------------ observability
   prometheus:
     image: prom/prometheus:v2.46.0
     container_name: prometheus
@@ -540,7 +504,6 @@ services:
     networks:
       - ecom-net
 
-  #Loki
   loki:
     image: grafana/loki:main
     command: [ '-config.file=/etc/loki/local-config.yaml' ]
@@ -549,7 +512,6 @@ services:
     networks:
       - ecom-net
 
-  #Tempo
   tempo:
     image: grafana/tempo:2.2.2
     command: [ '-config.file=/etc/tempo.yaml' ]
@@ -562,21 +524,20 @@ services:
     networks:
       - ecom-net
 
-  #Grafana
   grafana:
     image: grafana/grafana:10.1.0
     container_name: grafana
     restart: unless-stopped
     ports:
       - "3000:3000"
-    links:
-      - prometheus
     volumes:
       - ./docker/grafana:/etc/grafana/provisioning/datasources:ro
     environment:
       - GF_SECURITY_ADMIN_USER=admin
       - GF_SECURITY_ADMIN_PASSWORD=password
       - GF_USERS_ALLOW_SIGN_UP=true
+    depends_on:
+      - prometheus
     networks:
       - ecom-net
 
@@ -589,8 +550,8 @@ volumes:
   prometheus-data:
   loki-data:
   grafana-data:
+  review_images:
 
 networks:
   ecom-net:
     driver: bridge
-

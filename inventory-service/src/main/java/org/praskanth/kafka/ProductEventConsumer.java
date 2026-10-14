@@ -44,7 +44,7 @@ public class ProductEventConsumer {
             String productId = event.getProductId().toString();
             String productName = event.getName() != null ? event.getName().toString() : "Unknown";
             Long sellerId = event.getSellerId();
-            inventoryService.provisionIfAbsent(productId, productName, sellerId);
+            inventoryService.provisionIfAbsent(productId, productName, sellerId, event.getInitialStock());
             ack.acknowledge();
         } catch (Exception ex) {
             redisTemplate.delete(dedupKey);

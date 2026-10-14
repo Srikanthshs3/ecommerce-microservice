@@ -1,16 +1,15 @@
 package org.praskanth.dto;
 
 import jakarta.validation.constraints.NotBlank;
-import lombok.*;
+import jakarta.validation.constraints.Pattern;
+import jakarta.validation.constraints.Size;
 
-@Data
-@AllArgsConstructor
-@NoArgsConstructor
-@Builder
-public class UserUpdateRequest {
+/** Self-service update of the basic account profile. Seller business data uses SellerProfileRequest. */
+public record UserUpdateRequest(
+        @NotBlank(message = "Name cannot be empty")
+        @Size(max = 100)
+        String name,
 
-    @NotBlank(message = "Name cannot be empty")
-    private String name;
-
-    private String GSTIN;
-}
+        @Pattern(regexp = ValidationPatterns.PHONE, message = "Invalid phone number")
+        String phoneNumber
+) {}

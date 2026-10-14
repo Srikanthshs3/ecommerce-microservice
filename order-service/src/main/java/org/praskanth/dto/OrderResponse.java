@@ -23,4 +23,7 @@ public class OrderResponse {
     private String cancellationReason;
     private List<OrderItemResponse> items;
     private Instant orderDate;
+    private String couponCode;
+    /** This order's part of the coupon discount (already subtracted from totalAmount). */
+    private BigDecimal couponDiscount;
 }

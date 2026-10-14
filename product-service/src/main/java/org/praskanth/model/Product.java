@@ -21,8 +21,16 @@ import java.util.List;
 public class Product {
     @Id
     private String id;
+    /** the most specific category (a level-3 brand/type) the seller picked */
     @Indexed
     private String categoryId;
+
+    /**
+     * root..categoryId as ids, e.g. [mensId, shirtsId, vanHeusenId]. Lets "everything under Men's" be ONE indexed
+     * query (categoryPath = mensId) instead of a recursive lookup. Ids only, so renaming a category never touches products.
+     */
+    @Indexed
+    private List<String> categoryPath;
 
     @Indexed
     private Long sellerId;

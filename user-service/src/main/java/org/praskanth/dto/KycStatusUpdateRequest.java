@@ -1,18 +1,14 @@
 package org.praskanth.dto;
 
 import jakarta.validation.constraints.NotNull;
-import lombok.AllArgsConstructor;
-import lombok.Builder;
-import lombok.Data;
-import lombok.NoArgsConstructor;
+import jakarta.validation.constraints.Size;
 import org.praskanth.entity.SellerProfile;
 
-@Data
-@Builder
-@AllArgsConstructor
-@NoArgsConstructor
-public class KycStatusUpdateRequest {
+public record KycStatusUpdateRequest(
+        @NotNull(message = "KYC status is required")
+        SellerProfile.KycStatus status,
 
-    @NotNull(message = "KYC status is required")
-    private SellerProfile.KycStatus kycStatus;
-}
+        /** Mandatory for REJECTED, SUSPENDED and BANNED so the seller knows what to fix. */
+        @Size(max = 500)
+        String reason
+) {}
