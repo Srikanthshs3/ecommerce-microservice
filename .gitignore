@@ -4,6 +4,10 @@ target/
 !**/src/test/**/target/
 docker/tempo/tempo-data/
 grafana/
+.mvn/
+mvnw
+mvnw.cmd
+
 
 ### IntelliJ IDEA ###
 .idea
@@ -42,3 +46,7 @@ build/
 
 # Environment files containing secrets
 *.env
+
+### Local secrets (never commit) ###
+.env
+.env.local

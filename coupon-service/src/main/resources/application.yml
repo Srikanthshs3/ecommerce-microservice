@@ -1,0 +1,12 @@
+server:
+  port: 2321
+
+spring:
+  application:
+    name: COUPON-SERVICE
+  cloud:
+    config:
+      enabled: true
+  config:
+    # repo-root .env (JWT_SECRET, APP_CRYPTO_KEY ...). Optional: absent in Docker, where compose injects real env vars.
+    import: optional:file:./.env[.properties],optional:file:../.env[.properties],optional:configserver:${SPRING_CLOUD_CONFIG_URI:http://localhost:8888}

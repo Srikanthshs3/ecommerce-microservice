@@ -2,24 +2,37 @@ package org.praskanth.dto;
 
 import jakarta.validation.constraints.Email;
 import jakarta.validation.constraints.NotBlank;
-import jakarta.validation.constraints.Size;
+import jakarta.validation.constraints.NotNull;
 import lombok.Data;
+import org.praskanth.entity.BankDetails;
+import org.praskanth.entity.BusinessDetails;
+import org.praskanth.enums.UserRole;
 
 @Data
 public class RegisterCompleteRequest {
 
-    @NotBlank
-    @Email
+    @NotBlank(message = "Email is required")
+    @Email(message = "Invalid email format")
     private String email;
 
-    @NotBlank(message = "Verification token from the /register/verify-otp step is required")
+    @NotBlank(message = "Verification token is required")
     private String verificationToken;
 
-    @NotBlank
-    @Size(min = 2, max = 100)
+    @NotBlank(message = "Password is required")
+    private String password;
+
+    @NotBlank(message = "Name is required")
     private String name;
 
-    @NotBlank
-    @Size(min = 8, max = 72, message = "Password must be between 8 and 72 characters")
-    private String password;
+    private String phoneNumber;
+
+    @NotNull(message = "User role is required")
+    private UserRole role; // CUSTOMER or SELLER
+
+    // Required only when role == ROLE_SELLER
+    private BankDetails bankDetails = new BankDetails();
+
+    private BusinessDetails businessDetails = new BusinessDetails();
+
+    private String GSTIN;
 }

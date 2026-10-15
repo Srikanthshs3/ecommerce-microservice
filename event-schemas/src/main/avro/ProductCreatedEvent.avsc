@@ -1,0 +1,17 @@
+{
+  "type": "record",
+  "name": "ProductCreatedEvent",
+  "namespace": "org.praskanth.events",
+  "doc": "Published by product-service whenever a new product document is created in MongoDB.",
+  "fields": [
+    {"name": "eventId", "type": "string", "doc": "UUID, unique per publish attempt - the key consumers dedupe on"},
+    {"name": "productId", "type": "string", "doc": "MongoDB ObjectId as a string"},
+    {"name": "name", "type": "string"},
+    {"name": "sellerId", "type": "long"},
+    {"name": "categoryId", "type": "string"},
+    {"name": "imageUrl", "type": {"type":"array", "items":"string"}, "default":[], "doc":"List of Product image URLs"},
+    {"name": "price", "type": {"type": "bytes", "logicalType": "decimal", "precision": 12, "scale": 2}},
+    {"name": "initialStock", "type": "int", "default": 0, "doc": "Quantity the seller entered at creation; inventory-service starts the stock row with it. Default 0 keeps old messages readable"},
+    {"name": "createdAt", "type": {"type": "long", "logicalType": "timestamp-millis"}}
+  ]
+}

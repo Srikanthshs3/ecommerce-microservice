@@ -1,0 +1,13 @@
+{
+  "type": "record",
+  "name": "ShipmentCreatedEvent",
+  "namespace": "org.praskanth.events",
+  "doc": "Published by shipping-service once a shipment is created for a paid order. Final happy-path event in the order Saga.",
+  "fields": [
+    {"name": "eventId", "type": "string"},
+    {"name": "orderId", "type": "long"},
+    {"name": "trackingNumber", "type": "string"},
+    {"name": "carrier", "type": "string"},
+    {"name": "createdAt", "type": {"type": "long", "logicalType": "timestamp-millis"}}
+  ]
+}

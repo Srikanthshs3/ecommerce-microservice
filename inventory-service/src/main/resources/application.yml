@@ -1,0 +1,24 @@
+server:
+  port: 2316
+
+spring:
+  application:
+    name: INVENTORY-SERVICE
+  cloud:
+    config:
+      enabled: true
+  config:
+    # repo-root .env (JWT_SECRET, APP_CRYPTO_KEY ...). Optional: absent in Docker, where compose injects real env vars.
+    import: optional:file:./.env[.properties],optional:file:../.env[.properties],optional:configserver:${SPRING_CLOUD_CONFIG_URI:http://localhost:8888}
+  flyway:
+    enabled: true
+    # Same reasoning as order-service: this DB already has tables from ddl-auto: update,
+    # so baseline-on-migrate lets Flyway adopt it at "version 1" without requiring a V1
+    # migration to exist, then apply V2+ normally.
+    baseline-on-migrate: true
+    baseline-version: 1
+    locations: classpath:db/migration
+
+# IMPORTANT: now that Flyway owns the schema, spring.jpa.hibernate.ddl-auto must be changed
+# from "update" to "validate" in the EXTERNAL config-repo's inventory-service.yml (config-server
+# values override whatever is set locally here, so it can't be flipped in this file).

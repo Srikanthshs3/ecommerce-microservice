@@ -1,0 +1,22 @@
+{
+  "type": "record",
+  "name": "OrderCreatedEvent",
+  "namespace": "org.praskanth.events",
+  "doc": "Published by order-service when an order is placed (status=PENDING). First event in the order Saga.",
+  "fields": [
+    {"name": "eventId", "type": "string", "doc": "UUID, unique per publish attempt - the key consumers dedupe on"},
+    {"name": "orderId", "type": "long", "doc": "Also the sagaId every downstream event correlates on"},
+    {"name": "userId", "type": "long"},
+    {"name": "items", "type": {"type": "array", "items": {
+        "type": "record",
+        "name": "OrderItemPayload",
+        "fields": [
+          {"name": "productId", "type": "string"},
+          {"name": "quantity", "type": "int"},
+          {"name": "unitPrice", "type": {"type": "bytes", "logicalType": "decimal", "precision": 12, "scale": 2}}
+        ]
+    }}},
+    {"name": "totalAmount", "type": {"type": "bytes", "logicalType": "decimal", "precision": 12, "scale": 2}},
+    {"name": "createdAt", "type": {"type": "long", "logicalType": "timestamp-millis"}}
+  ]
+}

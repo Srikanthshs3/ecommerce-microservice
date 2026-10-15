@@ -16,6 +16,15 @@
         <module>common-library</module>
         <module>event-schemas</module>
         <module>notification-service</module>
+        <module>product-service</module>
+        <module>category-service</module>
+        <module>cart-service</module>
+        <module>inventory-service</module>
+        <module>order-service</module>
+        <module>payment-service</module>
+        <module>shipping-service</module>
+        <module>review-service</module>
+        <module>coupon-service</module>
     </modules>
     <packaging>pom</packaging>
 
@@ -30,6 +39,7 @@
     <properties>
         <maven.compiler.source>21</maven.compiler.source>
         <maven.compiler.target>21</maven.compiler.target>
+        <maven.compiler.release>21</maven.compiler.release>
         <spring-cloud.version>2024.0.1</spring-cloud.version>
         <project.build.sourceEncoding>UTF-8</project.build.sourceEncoding>
         <jjwt.version>0.12.6</jjwt.version>

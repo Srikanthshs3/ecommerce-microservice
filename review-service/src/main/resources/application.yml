@@ -1,0 +1,32 @@
+server:
+  port: 2320
+
+spring:
+  application:
+    name: REVIEW-SERVICE
+  cloud:
+    config:
+      enabled: true
+  config:
+    # repo-root .env (JWT_SECRET, APP_CRYPTO_KEY ...). Optional: absent in Docker, where compose injects real env vars.
+    import: optional:file:./.env[.properties],optional:file:../.env[.properties],optional:configserver:${SPRING_CLOUD_CONFIG_URI:http://localhost:8888}
+
+  # Image uploads. A review may carry up to review.images.max-count pictures; keep these limits in step with it.
+  servlet:
+    multipart:
+      max-file-size: 5MB
+      max-request-size: 30MB
+
+review:
+  images:
+    # Where uploaded pictures are written. In Docker this is a mounted volume (see docker-compose-main.yml).
+    storage-dir: ${REVIEW_IMAGE_DIR:./uploads/reviews}
+    max-count: 5
+    max-size-bytes: 5242880   # 5 MB per picture
+  # true  => only customers who bought the product can review it
+  # false => anyone logged in can review; buyers just get a "Verified purchase" badge
+  require-purchase: ${REVIEW_REQUIRE_PURCHASE:false}
+
+user:
+  api:
+    url: http://USER-SERVICE

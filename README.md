@@ -15,3 +15,5 @@ Databases & Cache: MySQL 8.0, Redis 7.0
 Observability (LGTM): Loki, Grafana, Tempo, Prometheus, Micrometer Tracing
 
 Containerization: Docker & Docker Compose
+
+for learning purposes only, all rights reserved

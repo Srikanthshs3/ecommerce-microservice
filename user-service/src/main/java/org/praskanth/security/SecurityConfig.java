@@ -1,8 +1,11 @@
 package org.praskanth.security;
 
 import lombok.RequiredArgsConstructor;
+import org.praskanth.security.gateway.GatewayAuthenticationFilter;
+import org.praskanth.security.gateway.GatewaySecurityErrorHandler;
 import org.springframework.context.annotation.Bean;
 import org.springframework.context.annotation.Configuration;
+import org.springframework.http.HttpMethod;
 import org.springframework.security.authentication.AuthenticationManager;
 import org.springframework.security.config.Customizer;
 import org.springframework.security.config.annotation.authentication.configuration.AuthenticationConfiguration;
@@ -22,18 +25,31 @@ import org.springframework.security.web.authentication.UsernamePasswordAuthentic
 @RequiredArgsConstructor
 public class SecurityConfig {
 
-    private final JwtAuthFilter jwtAuthFilter;
+    // Identity comes from the headers the API gateway sets after verifying the JWT - no token handling here.
+    private final GatewayAuthenticationFilter gatewayAuthenticationFilter;
+    private final GatewaySecurityErrorHandler gatewaySecurityErrorHandler;
 
     @Bean
     public SecurityFilterChain securityFilterChain(HttpSecurity httpSecurity) throws Exception{
         httpSecurity.csrf(AbstractHttpConfigurer::disable)
+                .exceptionHandling(exception -> exception
+                        .authenticationEntryPoint(gatewaySecurityErrorHandler)
+                        .accessDeniedHandler(gatewaySecurityErrorHandler))
                 .cors(Customizer.withDefaults())
-                .authorizeHttpRequests(request -> request
-                        .requestMatchers("/api/v1/auth/**", "/swagger-ui/**", "/v3/api-docs/**","/v3/api-docs.yaml",
-                                "/api/v1/category/**", "/api/v1/product/**", "/api/v1/order/**", "/actuator/prometheus").permitAll()
+                .authorizeHttpRequests(auth -> auth
+                        // authenticated endpoints that live under the public /auth prefix (most specific first)
+                        .requestMatchers("/api/v1/auth/me", "/api/v1/auth/change-password",
+                                "/api/v1/auth/logout-all").authenticated()
+                        // public: registration, login, token refresh, password reset
+                        .requestMatchers("/api/v1/auth/**").permitAll()
+                        // public: seller sign-up and the shopper-facing store page
+                        .requestMatchers(HttpMethod.POST, "/api/v1/sellers/register").permitAll()
+                        .requestMatchers(HttpMethod.GET, "/api/v1/sellers/*/public").permitAll()
+                        .requestMatchers("/swagger-ui/**", "/v3/api-docs/**", "/v3/api-docs.yaml").permitAll()
+                        .requestMatchers("/actuator/health/**", "/actuator/prometheus").permitAll()
                         .anyRequest().authenticated())
                 .sessionManagement(manager-> manager.sessionCreationPolicy(SessionCreationPolicy.STATELESS))
-                .addFilterBefore(jwtAuthFilter, UsernamePasswordAuthenticationFilter.class);
+                .addFilterBefore(gatewayAuthenticationFilter, UsernamePasswordAuthenticationFilter.class);
         return httpSecurity.build();
     }
 
