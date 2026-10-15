@@ -76,6 +76,11 @@ public class GlobalExceptionHandler {
         return respond(HttpStatus.FORBIDDEN, "FORBIDDEN", ex.getMessage(), null, request, ex);
     }
 
+    @ExceptionHandler(AuthChallengeException.class)
+    public ResponseEntity<?> handleAuthChallenge(AuthChallengeException ex, HttpServletRequest request) {
+        return build(ex.getStatus(), ex.getCode(), ex.getMessage(), request);
+    }
+
     @ExceptionHandler(TooManyRequestsException.class)
     public ResponseEntity<ApiResponse<Void>> handleTooManyRequests(TooManyRequestsException ex, HttpServletRequest request) {
         return respond(HttpStatus.TOO_MANY_REQUESTS, "TOO_MANY_REQUESTS", ex.getMessage(), null, request, ex,
@@ -243,5 +248,14 @@ public class GlobalExceptionHandler {
             builder.header(headerName, headerValue);
         }
         return builder.body(ApiResponse.failure(error));
+    }
+
+    private ResponseEntity<?> build(HttpStatus status, String code, String message, HttpServletRequest request) {
+        var body = ApiResponse.failure(ErrorResponse.builder()
+                .code(code)
+                .message(message)
+                .path(request.getRequestURI())
+                .build());
+        return ResponseEntity.status(status).body(body);
     }
 }

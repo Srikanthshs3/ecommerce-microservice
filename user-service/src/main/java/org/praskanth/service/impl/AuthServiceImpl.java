@@ -8,20 +8,20 @@ import org.praskanth.dto.LoginResponse;
 import org.praskanth.dto.OtpVerifyResponse;
 import org.praskanth.dto.RefreshTokenResponse;
 import org.praskanth.entity.User;
-import org.praskanth.exception.BadRequestException;
-import org.praskanth.exception.ForbiddenOperationException;
-import org.praskanth.exception.NotFoundException;
-import org.praskanth.exception.UnauthorizedException;
+import org.praskanth.enums.UserRole;
+import org.praskanth.exception.*;
 import org.praskanth.kafka.UserEventProducer;
 import org.praskanth.mapper.UserMapper;
 import org.praskanth.repository.UserRepo;
 import org.praskanth.security.JwtUtils;
 import org.praskanth.service.AuthService;
+import org.praskanth.service.CaptchaService;
 import org.praskanth.service.EmailVerificationService;
 import org.praskanth.service.LoginAttemptService;
 import org.praskanth.service.RefreshTokenService;
 import org.praskanth.util.Emails;
 import org.springframework.data.redis.core.StringRedisTemplate;
+import org.springframework.http.HttpStatus;
 import org.springframework.security.crypto.password.PasswordEncoder;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
@@ -50,6 +50,7 @@ public class AuthServiceImpl implements AuthService {
     private final JwtUtils jwtUtils;
     private final RefreshTokenService refreshTokenService;
     private final LoginAttemptService loginAttemptService;
+    private final CaptchaService captchaService;
     private final EmailVerificationService emailVerificationService;
     private final UserEventProducer eventProducer;
     private final StringRedisTemplate redis;
@@ -77,22 +78,74 @@ public class AuthServiceImpl implements AuthService {
 
     // ---------- login / refresh / logout ----------
 
+    /**
+     * Failed-login rules (numbers are configurable, see LoginAttemptService):
+     *   1-2 wrong passwords   plain error
+     *   3 wrong passwords     the next attempt must carry a valid CAPTCHA token (not counted if it is missing)
+     *   6 wrong passwords     the account is blocked (account_non_locked = false). A blocked account cannot log in,
+     *                         cannot request or complete a password reset, and only an admin can unblock it.
+     * Administrators are never blocked for good; they get a 15-minute cool-down so they cannot lock themselves out.
+     * noRollbackFor: the "blocked" flag must be saved even though we answer with an error.
+     */
     @Override
-    @Transactional
+    @Transactional(noRollbackFor = {UnauthorizedException.class, AuthChallengeException.class, TooManyRequestsException.class})
     public LoginResult login(LoginRequest request) {
         String email = Emails.normalize(request.getEmail());
-        loginAttemptService.assertNotLocked(email);
-
         User user = userRepo.findByEmail(email).orElse(null);
+        boolean admin = user != null && user.hasRole(UserRole.ADMIN);
+        int failures = loginAttemptService.failures(email);
+        int maxFailures = loginAttemptService.maxFailures();
+        int captchaAfter = loginAttemptService.captchaAfter();
+
+        // 1. already blocked? (unknown emails behave like blocked ones after the limit, so nothing is revealed)
+        boolean blocked = user != null ? !user.isAccountNonLocked() : failures >= maxFailures;
+        if (blocked) {
+            throw accountBlocked();
+        }
+        if (admin) {
+            loginAttemptService.assertAdminNotCoolingDown(email);
+        }
+
+        // 2. too many wrong passwords so far: the user must prove they are human first
+        boolean captchaOn = captchaService.isEnabled();
+        if (captchaOn && failures >= captchaAfter && !captchaService.verify(request.getCaptchaToken())) {
+            String token = request.getCaptchaToken();
+            throw new AuthChallengeException(HttpStatus.BAD_REQUEST, "CAPTCHA_REQUIRED",
+                    token == null || token.isBlank()
+                            ? "Please confirm that you are not a robot."
+                            : "The CAPTCHA check failed. Please try again.");
+        }
+
+        // 3. the password itself
         boolean passwordOk = passwordEncoder.matches(request.getPassword(),
                 user != null ? user.getPassword() : dummyPasswordHash);
 
         if (user == null || !passwordOk) {
-            loginAttemptService.recordFailure(email);
+            int count = loginAttemptService.recordFailure(email);
+            if (count >= maxFailures) {
+                if (admin) {
+                    loginAttemptService.startAdminCooldown(email);
+                    throw new TooManyRequestsException("Too many failed login attempts. Try again in a few minutes.", 900);
+                }
+                if (user != null) {
+                    user.setAccountNonLocked(false);
+                    userRepo.save(user);
+                    refreshTokenService.revokeAllForUser(user.getId());
+                    log.warn("User {} blocked after {} failed login attempts", user.getId(), count);
+                }
+                throw accountBlocked();
+            }
+            if (count >= captchaAfter) {
+                int left = maxFailures - count;
+                String message = "Invalid email or password. " + left + (left == 1 ? " attempt" : " attempts")
+                        + " left before your account is blocked.";
+                if (captchaOn) {
+                    throw new AuthChallengeException(HttpStatus.UNAUTHORIZED, "CAPTCHA_REQUIRED",
+                            message + " Please confirm that you are not a robot to try again.");
+                }
+                throw new UnauthorizedException(message);
+            }
             throw new UnauthorizedException("Invalid email or password");
-        }
-        if (!user.isAccountNonLocked()) {
-            throw new ForbiddenOperationException("This account is locked. Please contact support.");
         }
 
         loginAttemptService.reset(email);
@@ -109,6 +162,11 @@ public class AuthServiceImpl implements AuthService {
                 .build();
         log.info("User {} logged in", user.getId());
         return new LoginResult(body, refreshToken);
+    }
+
+    private static AuthChallengeException accountBlocked() {
+        return new AuthChallengeException(HttpStatus.FORBIDDEN, "ACCOUNT_LOCKED",
+                "Your account is blocked. Please contact an administrator to unblock it.");
     }
 
     @Override
@@ -152,6 +210,11 @@ public class AuthServiceImpl implements AuthService {
             return;
         }
         userRepo.findByEmail(email).ifPresentOrElse(user -> {
+            if (!user.isAccountNonLocked()) {
+                // Blocked accounts (too many failed logins, or blocked by an admin) cannot reset their password.
+                log.warn("Password reset ignored for blocked user {}", user.getId());
+                return;
+            }
             byte[] bytes = new byte[32];
             secureRandom.nextBytes(bytes);
             String token = Base64.getUrlEncoder().withoutPadding().encodeToString(bytes);
@@ -172,6 +235,9 @@ public class AuthServiceImpl implements AuthService {
         }
         User user = userRepo.findById(Long.valueOf(userId))
                 .orElseThrow(() -> new BadRequestException("Invalid or expired token"));
+        if (!user.isAccountNonLocked()) {
+            throw accountBlocked();
+        }
 
         user.setPassword(passwordEncoder.encode(newPassword));
         // Deliberately does NOT touch accountNonLocked: a reset must not undo an admin ban.

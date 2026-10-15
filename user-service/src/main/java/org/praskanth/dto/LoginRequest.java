@@ -14,4 +14,9 @@ public class LoginRequest {
     @NotBlank(message = "password is required")
     @ToString.Exclude
     private String password;
+
+    /** Token from the "I'm not a robot" check; only needed after repeated failed logins. */
+    @jakarta.validation.constraints.Size(max = 4096)
+    @ToString.Exclude
+    private String captchaToken;
 }

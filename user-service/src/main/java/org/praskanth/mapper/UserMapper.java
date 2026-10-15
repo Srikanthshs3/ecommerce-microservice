@@ -37,6 +37,7 @@ public class UserMapper {
                 .phoneNumber(user.getPhoneNumber())
                 .role(roleNames(user))
                 .emailVerified(user.isEmailVerified())
+                .accountNonLocked(user.isAccountNonLocked())
                 .createdAt(user.getCreatedAt());
         if (includeAddresses && user.getCustomerProfile() != null) {
             builder.addresses(addressMapper.toResponses(user.getCustomerProfile().getAddresses()));
