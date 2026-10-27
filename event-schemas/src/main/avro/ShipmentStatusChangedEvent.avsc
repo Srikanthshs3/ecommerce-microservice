@@ -1,0 +1,15 @@
+{
+  "type": "record",
+  "name": "ShipmentStatusChangedEvent",
+  "namespace": "org.praskanth.events",
+  "doc": "Published by shipping-service every time a shipment moves to a new status (AWAITING_SELLER, READY_TO_SHIP, OUT_FOR_DELIVERY, DELIVERED, DELIVERY_FAILED, CANCELLED). order-service mirrors it onto the order, inventory-service finalises the stock when the parcel leaves.",
+  "fields": [
+    {"name": "eventId", "type": "string"},
+    {"name": "orderId", "type": "long"},
+    {"name": "shipmentId", "type": "long"},
+    {"name": "status", "type": "string"},
+    {"name": "note", "type": "string", "default": ""},
+    {"name": "actor", "type": "string", "default": ""},
+    {"name": "occurredAt", "type": {"type": "long", "logicalType": "timestamp-millis"}}
+  ]
+}

@@ -39,7 +39,7 @@ public class PaymentCompletedConsumer {
         }
 
         try {
-            orderService.markConfirmed(event.getOrderId());
+            orderService.markConfirmed(event.getOrderId(), event.getMethod() == null ? null : event.getMethod().toString());
             ack.acknowledge();
         } catch (Exception ex) {
             redisTemplate.delete(dedupKey);

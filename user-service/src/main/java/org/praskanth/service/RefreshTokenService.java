@@ -57,10 +57,10 @@ public class RefreshTokenService {
     @Transactional(noRollbackFor = UnauthorizedException.class)
     public RotatedToken rotate(String rawToken) {
         if (rawToken == null || rawToken.isBlank()) {
-            throw new UnauthorizedException("Refresh token is missing");
+            throw new UnauthorizedException("Your session has ended. Please sign in again.");
         }
         RefreshToken current = refreshTokenRepo.findByTokenHashForUpdate(hash(rawToken))
-                .orElseThrow(() -> new UnauthorizedException("Invalid refresh token"));
+                .orElseThrow(() -> new UnauthorizedException("Your session has ended. Please sign in again."));
 
         if (current.isRevoked()) {
             if (current.getFamilyId() != null) {
@@ -68,10 +68,10 @@ public class RefreshTokenService {
                 log.warn("Refresh token reuse detected for user {}; revoked {} active session token(s)",
                         current.getUser().getId(), revoked);
             }
-            throw new UnauthorizedException("Refresh token was revoked. Please login again");
+            throw new UnauthorizedException("Your session has ended. Please sign in again.");
         }
         if (current.getExpiryDate().isBefore(Instant.now())) {
-            throw new UnauthorizedException("Refresh token is expired. Please login again");
+            throw new UnauthorizedException("Your session has expired. Please sign in again.");
         }
 
         current.setRevoked(true);

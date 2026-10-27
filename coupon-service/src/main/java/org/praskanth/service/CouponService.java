@@ -92,7 +92,7 @@ public class CouponService {
     // ------------------------------------------------------------------------------------------------
 
     private Coupon findManageable(GatewayUser user, Long id) {
-        Coupon coupon = couponRepository.findById(id).orElseThrow(() -> new NotFoundException("Coupon not found: " + id));
+        Coupon coupon = couponRepository.findById(id).orElseThrow(() -> new NotFoundException("We couldn't find that coupon."));
         if (!user.isAdmin() && !user.id().equals(coupon.getSellerId())) {
             throw new ForbiddenOperationException("You can only manage your own coupons.");
         }
@@ -109,7 +109,7 @@ public class CouponService {
         }
         Instant from = r.getValidFrom() != null ? r.getValidFrom() : (coupon.getValidFrom() != null ? coupon.getValidFrom() : Instant.now());
         if (r.getValidUntil() != null && !r.getValidUntil().isAfter(from)) {
-            throw new BadRequestException("validUntil must be after validFrom.");
+            throw new BadRequestException("The coupon's end date must be after its start date.");
         }
 
         coupon.setDescription(r.getDescription() == null || r.getDescription().isBlank() ? null : r.getDescription().trim());

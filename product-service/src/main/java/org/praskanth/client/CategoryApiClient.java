@@ -1,7 +1,9 @@
 package org.praskanth.client;
 
+import io.github.resilience4j.bulkhead.annotation.Bulkhead;
 import io.github.resilience4j.circuitbreaker.annotation.CircuitBreaker;
 import io.github.resilience4j.retry.annotation.Retry;
+import org.praskanth.resilience.Fallbacks;
 import lombok.RequiredArgsConstructor;
 import org.praskanth.dto.ApiResponse;
 import org.praskanth.dto.CategoryResponse;
@@ -22,8 +24,9 @@ public class CategoryApiClient {
 
     private final RestTemplate restTemplate;
 
-    //@CircuitBreaker(name = "category", fallbackMethod = "fallbackMethod")
-    //@Retry(name = "category")
+    @Retry(name = "categoryService", fallbackMethod = "fallbackMethod")
+    @CircuitBreaker(name = "categoryService")
+    @Bulkhead(name = "categoryService")
     public ApiResponse<CategoryResponse> getById(String id) {
         String url = "http://category-service/api/v1/category/" + id;
 
@@ -40,7 +43,7 @@ public class CategoryApiClient {
 
     public ApiResponse<CategoryResponse> fallbackMethod(String id, Throwable throwable) {
         log.error("Category Service call failed for ID {}. Reason: {}", id, throwable.getMessage());
-        throw new ServiceUnavailableException("Category Service is temporarily unavailable. Cannot validate category.", throwable);
+        throw Fallbacks.translate("category service", throwable);
     }
 
 

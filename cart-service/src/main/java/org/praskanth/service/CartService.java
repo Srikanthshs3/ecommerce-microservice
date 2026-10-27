@@ -36,22 +36,49 @@ public class CartService {
 
     @Transactional
     public CartItemResponse addItem(GatewayUser user, AddItemRequest request) {
-        if (!inventoryApiClient.checkAvailability(request.getProductId(), request.getQuantity())) {
-            throw new BadRequestException("Requested quantity is out of stock for product: " + request.getProductId());
-        }
-
         ProductResponse product = productApiClient.getProductById(request.getProductId());
 
+        // A product WITH variants is bought as one specific variant (colour/size ...): its own price, picture and stock.
+        ProductResponse.Variant variant = null;
+        boolean hasVariants = product.getVariants() != null && !product.getVariants().isEmpty();
+        if (hasVariants) {
+            if (request.getVariantId() == null || request.getVariantId().isBlank()) {
+                throw new BadRequestException("Please choose "
+                        + (product.getOptionNames() == null ? "an option" : String.join(" and ", product.getOptionNames())) + " first.");
+            }
+            variant = product.getVariants().stream()
+                    .filter(v -> request.getVariantId().equals(v.getId()))
+                    .findFirst()
+                    .orElseThrow(() -> new BadRequestException("That option is no longer available. Please reload the product page."));
+        } else if (request.getVariantId() != null && !request.getVariantId().isBlank()) {
+            throw new BadRequestException("This product has no variants.");
+        }
+
+        // stock of a variant is kept under productId:variantId
+        String stockId = variant == null ? request.getProductId() : request.getProductId() + ":" + variant.getId();
+        if (!inventoryApiClient.checkAvailability(stockId, request.getQuantity())) {
+            throw new BadRequestException("Requested quantity is out of stock for product: " + product.getName()
+                    + (variant == null ? "" : " (" + variant.getLabel() + ")"));
+        }
 
         Cart cart = getOrCreateCart(user); // Now passes the whole user object
 
-        CartItem item = cartItemRepository.findByCartAndProductIdAndSize(cart, request.getProductId(), request.getSize());
+        CartItem item = variant == null
+                ? cartItemRepository.findByCartAndProductIdAndSize(cart, request.getProductId(), request.getSize())
+                : cartItemRepository.findByCartAndProductIdAndVariantId(cart, request.getProductId(), variant.getId());
         BigDecimal qty = BigDecimal.valueOf(request.getQuantity());
+        BigDecimal unitMrp = variant == null ? product.getMrpPrice() : variant.getMrpPrice();
+        BigDecimal unitSelling = variant == null ? product.getSellingPrice() : variant.getSellingPrice();
+        String picture = variant == null ? mainImage(product)
+                : (variant.getImageUrl() == null || variant.getImageUrl().isEmpty() ? mainImage(product) : variant.getImageUrl().get(0));
 
         if (item != null) {
             // Increment existing item safely using the baseline UNIT price
             int newQty = item.getQuantity() + request.getQuantity();
             item.setQuantity(newQty);
+            if (item.getImageUrl() == null) {
+                item.setImageUrl(picture); // lines added before pictures existed get one the next time
+            }
             item.setTotalMrpPrice(item.getUnitMrpPrice().multiply(BigDecimal.valueOf(newQty)));
             item.setTotalSellingPrice(item.getUnitSellingPrice().multiply(BigDecimal.valueOf(newQty)));
         } else {
@@ -60,19 +87,22 @@ public class CartService {
             item.setCart(cart);
             item.setProductId(request.getProductId());
             item.setProductName(product.getName());
+            item.setImageUrl(picture);
             item.setSellerId(product.getSellerId());
-            item.setSize(request.getSize());
+            item.setVariantId(variant == null ? null : variant.getId());
+            item.setVariantLabel(variant == null ? null : variant.getLabel());
+            item.setSize(variant == null ? request.getSize() : null);
             item.setQuantity(request.getQuantity());
             item.setUserId(user.id());
             item.setUserEmail(user.email());
 
             // Set baseline unit prices
-            item.setUnitMrpPrice(product.getMrpPrice());
-            item.setUnitSellingPrice(product.getSellingPrice());
+            item.setUnitMrpPrice(unitMrp);
+            item.setUnitSellingPrice(unitSelling);
 
             // Set totals based on quantity
-            item.setTotalMrpPrice(product.getMrpPrice().multiply(qty));
-            item.setTotalSellingPrice(product.getSellingPrice().multiply(qty));
+            item.setTotalMrpPrice(unitMrp.multiply(qty));
+            item.setTotalSellingPrice(unitSelling.multiply(qty));
 
             cart.getCartItems().add(item);
         }
@@ -251,7 +281,7 @@ public class CartService {
 
     public CartItem findCartItemById(Long id) {
         return cartItemRepository.findById(id)
-                .orElseThrow(() -> new BadRequestException("Cart item not found with id: " + id));
+                .orElseThrow(() -> new BadRequestException("That item is no longer in your cart."));
     }
 
     public CartResponse toCartResponse(Cart cart) {
@@ -281,6 +311,11 @@ public class CartService {
                 .build();
     }
 
+    /** First picture of the product, or null when it has none. */
+    private static String mainImage(ProductResponse product) {
+        return product.getImageUrl() == null || product.getImageUrl().isEmpty() ? null : product.getImageUrl().get(0);
+    }
+
     public CartItemResponse toCartItemResponse(CartItem item) {
         if (item == null) return null;
 
@@ -290,6 +325,8 @@ public class CartService {
                 .productName(item.getProductName())
                 .sellerId(item.getSellerId())
                 .imageUrl(item.getImageUrl())
+                .variantId(item.getVariantId())
+                .variantLabel(item.getVariantLabel())
                 .size(item.getSize())
                 .quantity(item.getQuantity())
                 .unitMrpPrice(item.getUnitMrpPrice())

@@ -36,6 +36,7 @@ public class SecurityConfig {
                         .accessDeniedHandler(gatewaySecurityErrorHandler))
                 .authorizeHttpRequests(auth -> auth
                         .requestMatchers("/actuator/**").permitAll()
+                        .requestMatchers("/internal/**").permitAll() // cluster-only: the gateway rejects /internal/**
                         .anyRequest().authenticated())
                 .addFilterBefore(gatewayAuthenticationFilter, UsernamePasswordAuthenticationFilter.class);
 

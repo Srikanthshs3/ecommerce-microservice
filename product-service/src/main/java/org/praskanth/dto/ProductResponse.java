@@ -16,5 +16,11 @@ public record ProductResponse(String id,
                               BigDecimal discountPrice,
                               List<String> imageUrl,
                               String color,
-                              Instant createdAt) {
+                              Instant createdAt,
+                              /** e.g. ["Colour","Size"]; empty for a simple product */
+                              List<String> optionNames,
+                              /** active variants only; empty for a simple product */
+                              List<VariantDtos.VariantResponse> variants,
+                              /** pictures per value of the first option (the seller's picture boxes) */
+                              List<VariantDtos.GalleryResponse> galleries) {
 }

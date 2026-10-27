@@ -22,6 +22,12 @@ public class InternalOrderController {
 
     private final OrderService orderService;
 
+    /** All orders of one checkout (payment-service sums them up and checks each one's status). */
+    @GetMapping("/checkout/{checkoutRef}")
+    public ResponseEntity<ApiResponse<java.util.List<OrderResponse>>> getByCheckout(@PathVariable String checkoutRef) {
+        return ResponseEntity.ok(ApiResponse.success(orderService.getByCheckoutRef(checkoutRef)));
+    }
+
     @GetMapping("/{id}")
     public ResponseEntity<ApiResponse<OrderResponse>> getById(@PathVariable Long id) {
         return ResponseEntity.ok(ApiResponse.success(orderService.getById(id)));

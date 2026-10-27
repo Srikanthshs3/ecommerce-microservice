@@ -77,6 +77,7 @@ public class PaymentOutboxPoller {
                         .setAmount(toByteBuffer(fields.amount()))
                         .setTransactionId(fields.transactionId())
                         .setCompletedAt(fields.completedAt())
+                        .setMethod(fields.method() == null ? "ONLINE" : fields.method())
                         .build();
             }
             case "PaymentFailedEvent" -> {

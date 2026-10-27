@@ -215,7 +215,7 @@ public class CategoryService {
 
     public CategoryResponse getByPath(String slugPath) {
         Category category = categoryRepository.findBySlugPath(slugPath.trim().toLowerCase(Locale.ROOT))
-                .orElseThrow(() -> new NotFoundException("Category not found: " + slugPath));
+                .orElseThrow(() -> new NotFoundException("We couldn't find that category."));
         return getById(category.getId());
     }
 
@@ -257,7 +257,7 @@ public class CategoryService {
     }
 
     private Category findOrThrow(String id) {
-        return categoryRepository.findById(id).orElseThrow(() -> new NotFoundException("Category not found: " + id));
+        return categoryRepository.findById(id).orElseThrow(() -> new NotFoundException("We couldn't find that category."));
     }
 
     private static String requireSlug(String name) {

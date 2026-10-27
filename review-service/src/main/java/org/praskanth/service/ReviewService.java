@@ -173,7 +173,7 @@ public class ReviewService {
     @Transactional(readOnly = true)
     public ReviewPageResponse list(String productId, int page, int size, String sort, Integer rating, Long callerId) {
         if (rating != null && (rating < 1 || rating > 5)) {
-            throw new BadRequestException("rating must be between 1 and 5");
+            throw new BadRequestException("Please choose a rating between 1 and 5 stars.");
         }
         PageRequest pageable = PageRequest.of(Math.max(page, 0), Math.min(Math.max(size, 1), 50), sortFor(sort));
         Page<Review> result = rating == null
@@ -287,7 +287,7 @@ public class ReviewService {
     }
 
     private Review findOrThrow(Long id) {
-        return reviewRepository.findById(id).orElseThrow(() -> new NotFoundException("Review not found: " + id));
+        return reviewRepository.findById(id).orElseThrow(() -> new NotFoundException("We couldn't find that review."));
     }
 
     private static Sort sortFor(String sort) {

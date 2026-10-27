@@ -122,12 +122,12 @@ public class AddressServiceImpl implements AddressService {
 
     private User getUser(String email){
         return userRepo.findByEmail(email)
-                .orElseThrow(() -> new NotFoundException("User with email " + email + " not found"));
+                .orElseThrow(() -> new NotFoundException("We couldn't find an account with that email."));
     }
 
     private Address getAddressSecurityCheck(Long addressId, Long userId) {
         return addressRepo.findByAddressIdAndUserId(addressId, userId)
-                .orElseThrow(() -> new NotFoundException("Address with ID " + addressId + " not found or you do not have permission to modify it."));
+                .orElseThrow(() -> new NotFoundException("We couldn't find that address."));
     }
 
     private void clearPreviousDefault(Long userId, Address.AddressType type) {

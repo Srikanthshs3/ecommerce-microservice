@@ -231,10 +231,10 @@ public class AuthServiceImpl implements AuthService {
         // GETDEL makes the token strictly single-use even under concurrent requests (needs Redis >= 6.2).
         String userId = redis.opsForValue().getAndDelete(RESET_TOKEN_PREFIX + sha256(token));
         if (userId == null) {
-            throw new BadRequestException("Invalid or expired token");
+            throw new BadRequestException("This link has expired or is not valid. Please request a new one.");
         }
         User user = userRepo.findById(Long.valueOf(userId))
-                .orElseThrow(() -> new BadRequestException("Invalid or expired token"));
+                .orElseThrow(() -> new BadRequestException("This link has expired or is not valid. Please request a new one."));
         if (!user.isAccountNonLocked()) {
             throw accountBlocked();
         }
@@ -249,7 +249,7 @@ public class AuthServiceImpl implements AuthService {
     @Override
     @Transactional
     public void changePassword(Long userId, String currentPassword, String newPassword) {
-        User user = userRepo.findById(userId).orElseThrow(() -> new NotFoundException("User not found"));
+        User user = userRepo.findById(userId).orElseThrow(() -> new NotFoundException("We couldn't find that user."));
         if (!passwordEncoder.matches(currentPassword, user.getPassword())) {
             throw new BadRequestException("Current password is incorrect");
         }

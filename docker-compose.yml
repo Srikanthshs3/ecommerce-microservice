@@ -38,19 +38,22 @@ x-env-mysql: &env-mysql                       # kafka + MySQL (no Redis)
   <<: *env-kafka
   SPRING_DATASOURCE_USERNAME: root
   SPRING_DATASOURCE_PASSWORD: ${DB_PASSWORD:-Admin@123}
-  SPRING_JPA_HIBERNATE_DDL_AUTO: update
+  SPRING_JPA_HIBERNATE_DDL_AUTO: ${DDL_AUTO:-none}   # Flyway owns the schema. Set DDL_AUTO=validate to check entities vs tables
+  SPRING_FLYWAY_ENABLED: "true"
 
 x-env-mysql-redis: &env-mysql-redis           # kafka + Redis + MySQL
   <<: *env-kafka-redis
   SPRING_DATASOURCE_USERNAME: root
   SPRING_DATASOURCE_PASSWORD: ${DB_PASSWORD:-Admin@123}
-  SPRING_JPA_HIBERNATE_DDL_AUTO: update
+  SPRING_JPA_HIBERNATE_DDL_AUTO: ${DDL_AUTO:-none}   # Flyway owns the schema. Set DDL_AUTO=validate to check entities vs tables
+  SPRING_FLYWAY_ENABLED: "true"
 
 x-env-postgres-redis: &env-postgres-redis     # kafka + Redis + Postgres
   <<: *env-kafka-redis
   SPRING_DATASOURCE_USERNAME: postgres
   SPRING_DATASOURCE_PASSWORD: ${DB_PASSWORD:-Admin@123}
-  SPRING_JPA_HIBERNATE_DDL_AUTO: update
+  SPRING_JPA_HIBERNATE_DDL_AUTO: ${DDL_AUTO:-none}   # Flyway owns the schema. Set DDL_AUTO=validate to check entities vs tables
+  SPRING_FLYWAY_ENABLED: "true"
   SPRING_JPA_PROPERTIES_HIBERNATE_DIALECT: org.hibernate.dialect.PostgreSQLDialect
 
 # Settings every Spring Boot service shares
@@ -98,6 +101,7 @@ services:
       MYSQL_ROOT_PASSWORD: ${DB_PASSWORD:-Admin@123}
     volumes:
       - mysql-data:/var/lib/mysql
+      - ./init-scripts/mysql:/docker-entrypoint-initdb.d:ro
     networks:
       - ecom-net
     restart: unless-stopped
@@ -115,6 +119,7 @@ services:
       - "27017:27017"
     volumes:
       - mongodb_data:/data/db
+      - ./init-scripts/mongo:/docker-entrypoint-initdb.d:ro
     networks:
       - ecom-net
     healthcheck:
@@ -134,7 +139,7 @@ services:
       - "5432:5432"
     volumes:
       - postgres_data:/var/lib/postgresql/data
-      - ./init-scripts/init-postgres.sql:/docker-entrypoint-initdb.d/init-postgres.sql:ro
+      - ./init-scripts/postgres:/docker-entrypoint-initdb.d:ro
     networks:
       - ecom-net
     healthcheck:
@@ -268,10 +273,14 @@ services:
       # must be IDENTICAL to user-service's value, otherwise every token is rejected
       JWT_SECRET: ${JWT_SECRET}
       JWT_ISSUER: ${JWT_ISSUER:-ecommerce-user-service}
+      REDIS_HOST: redis
+      REDIS_PORT: 6379
     depends_on:
       eureka-server:
         condition: service_started
       config-server:
+        condition: service_healthy
+      redis:
         condition: service_healthy
 
   # ------------------------------------------------------------------------------------ business services
@@ -348,6 +357,10 @@ services:
       <<: *env-mysql-redis
       SPRING_DATASOURCE_URL: jdbc:mysql://mysql:3306/shipping_db?createDatabaseIfNotExist=true&useSSL=false&allowPublicKeyRetrieval=true
       SPRING_KAFKA_CONSUMER_GROUP_ID: shipping-service-group
+      # Signs the customer's delivery code (never stored). Set your own long random value in .env.
+      SHIPPING_OTP_SECRET: ${SHIPPING_OTP_SECRET:-dev-only-delivery-otp-secret-change-me}
+      SHIPPING_AGENT_MAX_ACTIVE: ${SHIPPING_AGENT_MAX_ACTIVE:-10}
+      SHIPPING_DELIVERY_MAX_ATTEMPTS: ${SHIPPING_DELIVERY_MAX_ATTEMPTS:-2}
     depends_on:
       <<: *after-platform
       mysql:
@@ -400,6 +413,9 @@ services:
     environment:
       <<: *env-kafka-redis
       SPRING_DATA_MONGODB_URI: mongodb://mongodb:27017/product-service
+      PRODUCT_IMAGES_STORAGE_DIR: /app/uploads/products
+    volumes:
+      - product_images:/app/uploads/products
     depends_on:
       <<: *after-platform
       mongodb:
@@ -418,6 +434,7 @@ services:
       <<: *env-postgres-redis
       SPRING_DATASOURCE_URL: jdbc:postgresql://postgres:5432/order_db
       SPRING_KAFKA_CONSUMER_GROUP_ID: order-service-group
+      SPRING_CLOUD_OPENFEIGN_CIRCUITBREAKER_ENABLED: "false"
     depends_on:
       <<: *after-platform
       postgres:
@@ -436,14 +453,15 @@ services:
       <<: *env-postgres-redis
       SPRING_DATASOURCE_URL: jdbc:postgresql://postgres:5432/payment_db
       SPRING_KAFKA_CONSUMER_GROUP_ID: payment-service-group
-      PAYMENT_GATEWAY_DEFAULT: ${PAYMENT_GATEWAY_DEFAULT:-RAZORPAY}
-      PAYMENT_SANDBOX_ENABLED: "true"
-      # Razorpay keys come ONLY from your local .env (never written in this file). Plain ${VAR} on purpose:
-      # old Docker Compose releases mishandle the ${VAR:?message} form and hand the message text to the app.
-      # Empty = the service still starts; a payment attempt then fails with a clear "keys not configured" error.
+      PAYMENT_SANDBOX_ONLY: "true"
+      # Gateway keys come ONLY from your local .env (never written in this file). Plain ${VAR} on purpose: old Docker
+      # Compose releases mishandle the ${VAR:?message} form. Empty = that gateway is hidden on the payment page.
       RAZORPAY_KEY_ID: ${RAZORPAY_KEY_ID:-}
       RAZORPAY_KEY_SECRET: ${RAZORPAY_KEY_SECRET:-}
-      STRIPE_SECRET_KEY: ${STRIPE_SECRET_KEY:-sk_test_123456}   # only used if PAYMENT_GATEWAY_DEFAULT=STRIPE
+      RAZORPAY_WEBHOOK_SECRET: ${RAZORPAY_WEBHOOK_SECRET:-}
+      STRIPE_SECRET_KEY: ${STRIPE_SECRET_KEY:-}
+      STRIPE_PUBLISHABLE_KEY: ${STRIPE_PUBLISHABLE_KEY:-}
+      STRIPE_WEBHOOK_SECRET: ${STRIPE_WEBHOOK_SECRET:-}
     depends_on:
       <<: *after-platform
       postgres:
@@ -555,6 +573,7 @@ volumes:
   loki-data:
   grafana-data:
   review_images:
+  product_images:
 
 networks:
   ecom-net:

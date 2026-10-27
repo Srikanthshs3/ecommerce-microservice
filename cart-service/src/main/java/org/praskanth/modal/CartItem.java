@@ -33,6 +33,14 @@ public class CartItem {
 
     private String imageUrl;
 
+    /** Chosen variant of the product (null for simple products). Stock key = productId:variantId. */
+    @Column(length = 40)
+    private String variantId;
+
+    /** "Blue / M" - copied at add-to-cart time, like the name and the price. */
+    @Column(length = 200)
+    private String variantLabel;
+
     private String size;
 
     private Integer quantity;

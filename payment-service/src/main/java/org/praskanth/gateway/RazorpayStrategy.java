@@ -1,28 +1,20 @@
 package org.praskanth.gateway;
 
-import com.razorpay.Order;
 import com.razorpay.RazorpayClient;
-import jakarta.annotation.PostConstruct;
+import com.razorpay.Utils;
 import lombok.extern.slf4j.Slf4j;
 import org.json.JSONObject;
 import org.praskanth.entity.PaymentGateway;
+import org.praskanth.exception.PaymentVerificationException;
+import org.praskanth.util.Money;
 import org.springframework.beans.factory.annotation.Value;
 import org.springframework.stereotype.Component;
 
 import java.math.BigDecimal;
-import java.math.RoundingMode;
-import java.util.UUID;
+import java.util.LinkedHashMap;
+import java.util.Map;
 
-/**
- * Razorpay gateway.
- *
- * Where the keys come from (nothing is stored in the repository):
- *   - In Docker:  docker-compose.yml passes RAZORPAY_KEY_ID / RAZORPAY_KEY_SECRET from your local .env.
- *   - Locally (IntelliJ / mvn spring-boot:run): application.yaml imports ./.env or ../.env, so the same two
- *     variables are read straight from that file.
- * The properties default to empty so the service still starts without keys (for example when only STRIPE is
- * used). A payment attempt without valid keys fails with a clear message instead of a stack trace.
- */
+/** Razorpay in TEST mode (rzp_test_ keys): Checkout in the browser, signature + amount verified here. */
 @Component
 @Slf4j
 public class RazorpayStrategy implements PaymentGatewayStrategy {
@@ -33,19 +25,14 @@ public class RazorpayStrategy implements PaymentGatewayStrategy {
     @Value("${razorpay.key-secret:}")
     private String keySecret;
 
-    private volatile RazorpayClient client;
+    @Value("${razorpay.webhook-secret:}")
+    private String webhookSecret;
 
-    @PostConstruct
-    void checkConfiguration() {
-        if (isBlank(keyId) || isBlank(keySecret)) {
-            log.warn("Razorpay keys are not configured (RAZORPAY_KEY_ID / RAZORPAY_KEY_SECRET). "
-                    + "Razorpay payments will fail until they are set in .env.");
-        } else if (!keyId.strip().startsWith("rzp_")) {
-            log.warn("RAZORPAY_KEY_ID does not look like a Razorpay key id (expected rzp_test_... or rzp_live_...).");
-        } else {
-            log.info("Razorpay configured with key id {}...", keyId.strip().substring(0, Math.min(12, keyId.strip().length())));
-        }
-    }
+    /** Learning project: refuse live keys so real money can never move. */
+    @Value("${payment.sandbox-only:true}")
+    private boolean sandboxOnly;
+
+    private RazorpayClient client;
 
     @Override
     public PaymentGateway getGateway() {
@@ -53,48 +40,131 @@ public class RazorpayStrategy implements PaymentGatewayStrategy {
     }
 
     @Override
-    public String executePayment(Long orderId, BigDecimal amount, String currency) throws Exception {
-        RazorpayClient razorpay = client();
-
-        JSONObject orderRequest = new JSONObject();
-        // Razorpay wants the amount in the smallest unit (paise) as an integer. Round instead of truncating.
-        orderRequest.put("amount", amount.movePointRight(2).setScale(0, RoundingMode.HALF_UP).longValueExact());
-        orderRequest.put("currency", currency != null ? currency : "INR");
-        orderRequest.put("receipt", "rcpt_order_" + orderId);
-
-        Order razorpayOrder = razorpay.orders.create(orderRequest);
-        String rzpOrderId = razorpayOrder.get("id");
-        log.info("Created Razorpay order {} for platform order {}", rzpOrderId, orderId);
-
-        // For automated backend processing, return transaction reference
-        return "rzp_txn_" + rzpOrderId.replace("order_", "") + "_" + UUID.randomUUID().toString().substring(0, 8);
+    public boolean isAvailable() {
+        if (keyId == null || keySecret == null || keySecret.isBlank()) {
+            return false;
+        }
+        return sandboxOnly ? keyId.startsWith("rzp_test_") : keyId.startsWith("rzp_");
     }
 
-    /** Builds the Razorpay client once, and fails with an actionable message when the keys are missing or wrong. */
-    private RazorpayClient client() throws Exception {
-        RazorpayClient local = client;
-        if (local != null) {
-            return local;
+    private synchronized RazorpayClient client() throws Exception {
+        if (!isAvailable()) {
+            throw new IllegalStateException("Razorpay is not configured (RAZORPAY_KEY_ID / RAZORPAY_KEY_SECRET, test keys only)");
         }
-        synchronized (this) {
-            if (client == null) {
-                if (isBlank(keyId) || isBlank(keySecret)) {
-                    throw new IllegalStateException(
-                            "Razorpay is not configured: set RAZORPAY_KEY_ID and RAZORPAY_KEY_SECRET in your .env "
-                                    + "(Razorpay dashboard > Test Mode > API Keys) and restart payment-service.");
-                }
-                if (!keyId.strip().startsWith("rzp_")) {
-                    throw new IllegalStateException(
-                            "RAZORPAY_KEY_ID is not a valid Razorpay key id (expected rzp_test_... or rzp_live_...). "
-                                    + "Check the value in your .env.");
-                }
-                client = new RazorpayClient(keyId.strip(), keySecret.strip());
-            }
-            return client;
+        if (client == null) {
+            client = new RazorpayClient(keyId, keySecret);
         }
+        return client;
     }
 
-    private static boolean isBlank(String value) {
-        return value == null || value.isBlank();
+    @Override
+    public String createOrder(String checkoutRef, BigDecimal amount, String currency) throws Exception {
+        JSONObject request = new JSONObject();
+        request.put("amount", Money.toMinor(amount));
+        request.put("currency", currency);
+        request.put("receipt", checkoutRef); // max 40 chars; a UUID is 36
+        request.put("payment_capture", 1);
+        JSONObject notes = new JSONObject();
+        notes.put("checkoutRef", checkoutRef);
+        request.put("notes", notes);
+
+        com.razorpay.Order order = client().orders.create(request);
+        String id = order.get("id");
+        log.info("Created Razorpay order {} for checkout {}", id, checkoutRef);
+        return id;
+    }
+
+    @Override
+    public Map<String, Object> clientConfig(String gatewayOrderId, BigDecimal amount, String currency) {
+        Map<String, Object> config = new LinkedHashMap<>();
+        config.put("keyId", keyId);
+        config.put("orderId", gatewayOrderId);
+        config.put("amount", Money.toMinor(amount));
+        config.put("currency", currency);
+        config.put("name", "eShop");
+        config.put("description", "Order payment (test mode)");
+        return config;
+    }
+
+    @Override
+    public VerifiedPayment verify(String gatewayOrderId, BigDecimal expectedAmount, Map<String, String> proof) throws Exception {
+        String orderId = proof.get("razorpayOrderId");
+        String paymentId = proof.get("razorpayPaymentId");
+        String signature = proof.get("razorpaySignature");
+        if (isBlank(orderId) || isBlank(paymentId) || isBlank(signature)) {
+            throw new PaymentVerificationException("Payment details are missing. Please try again.");
+        }
+        if (!orderId.equals(gatewayOrderId)) {
+            throw new PaymentVerificationException("This payment does not belong to this order.");
+        }
+
+        JSONObject attributes = new JSONObject();
+        attributes.put("razorpay_order_id", orderId);
+        attributes.put("razorpay_payment_id", paymentId);
+        attributes.put("razorpay_signature", signature);
+        if (!Utils.verifyPaymentSignature(attributes, keySecret)) {
+            throw new PaymentVerificationException("We couldn't verify this payment, so it was not accepted. Please try again or choose another payment method.");
+        }
+
+        // The signature proves Razorpay issued this payment for this order; also check what was really paid.
+        com.razorpay.Payment payment = client().payments.fetch(paymentId);
+        Number paid = payment.get("amount");
+        String status = payment.get("status");
+        if (paid == null || paid.longValue() != Money.toMinor(expectedAmount)) {
+            throw new PaymentVerificationException("The amount paid does not match your order total, so the payment was not accepted. Please contact support.");
+        }
+        if (!"captured".equals(status) && !"authorized".equals(status)) {
+            throw new PaymentVerificationException("The payment has not been completed yet. Please finish the payment or try again.");
+        }
+        return new VerifiedPayment(paymentId);
+    }
+
+    @Override
+    public String refund(String gatewayPaymentId, BigDecimal amount, String idempotencyKey) throws Exception {
+        JSONObject request = new JSONObject();
+        request.put("amount", Money.toMinor(amount));
+        JSONObject notes = new JSONObject();
+        notes.put("key", idempotencyKey);
+        request.put("notes", notes);
+        com.razorpay.Refund refund = client().payments.refund(gatewayPaymentId, request);
+        String id = refund.get("id");
+        log.info("Razorpay refund {} of {} for payment {}", id, amount, gatewayPaymentId);
+        return id;
+    }
+
+    @Override
+    public void cancelOrder(String gatewayOrderId) {
+        // Razorpay orders cannot be cancelled; an unpaid one simply stays unused.
+    }
+
+    @Override
+    public WebhookEvent parseWebhook(String payload, String signature) throws Exception {
+        if (isBlank(webhookSecret)) {
+            throw new PaymentVerificationException("Razorpay webhook secret is not configured.");
+        }
+        if (isBlank(signature) || !Utils.verifyWebhookSignature(payload, signature, webhookSecret)) {
+            throw new PaymentVerificationException("Invalid Razorpay webhook signature.");
+        }
+        JSONObject root = new JSONObject(payload);
+        String event = root.optString("event");
+        JSONObject body = root.optJSONObject("payload");
+        JSONObject paymentWrapper = body == null ? null : body.optJSONObject("payment");
+        JSONObject entity = paymentWrapper == null ? null : paymentWrapper.optJSONObject("entity");
+        if (entity == null) {
+            return WebhookEvent.ignored();
+        }
+        String orderId = entity.optString("order_id", null);
+        String paymentId = entity.optString("id", null);
+        return switch (event) {
+            case "payment.captured", "order.paid" ->
+                    new WebhookEvent(WebhookEvent.Type.SUCCEEDED, orderId, paymentId, null);
+            case "payment.failed" ->
+                    new WebhookEvent(WebhookEvent.Type.FAILED, orderId, paymentId, entity.optString("error_description", "Payment failed"));
+            default -> WebhookEvent.ignored();
+        };
+    }
+
+    private static boolean isBlank(String s) {
+        return s == null || s.isBlank();
     }
 }

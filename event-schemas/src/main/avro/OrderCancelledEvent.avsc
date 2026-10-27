@@ -1,0 +1,13 @@
+{
+  "type": "record",
+  "name": "OrderCancelledEvent",
+  "namespace": "org.praskanth.events",
+  "doc": "Published by order-service whenever an order moves to CANCELLED (payment window expired, customer cancelled, seller cancelled ...). Compensation trigger: inventory-service releases the stock, payment-service voids or refunds.",
+  "fields": [
+    {"name": "eventId", "type": "string"},
+    {"name": "orderId", "type": "long"},
+    {"name": "userId", "type": "long"},
+    {"name": "reason", "type": "string"},
+    {"name": "cancelledAt", "type": {"type": "long", "logicalType": "timestamp-millis"}}
+  ]
+}

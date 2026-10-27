@@ -1,5 +1,10 @@
 package org.praskanth.config;
 
+import io.github.resilience4j.bulkhead.annotation.Bulkhead;
+import io.github.resilience4j.circuitbreaker.annotation.CircuitBreaker;
+import io.github.resilience4j.retry.annotation.Retry;
+import org.praskanth.resilience.Fallbacks;
+
 import lombok.RequiredArgsConstructor;
 import org.praskanth.dto.CouponLine;
 import org.praskanth.dto.CouponResult;
@@ -24,6 +29,9 @@ public class CouponApiClient {
      * adds X-User-* to every load-balanced RestTemplate), which coupon-service needs for per-customer limits.
      * Nothing is recorded on the coupon-service side.
      */
+    @Retry(name = "couponService", fallbackMethod = "validateFallback")
+    @CircuitBreaker(name = "couponService")
+    @Bulkhead(name = "couponService")
     public CouponResult validate(String code, List<CouponLine> lines) {
         RemoteResponse<CouponResult> body = restTemplate.exchange(
                 "http://coupon-service/internal/v1/coupon/validate",
@@ -34,5 +42,9 @@ public class CouponApiClient {
             throw new IllegalStateException("Empty answer from coupon-service");
         }
         return body.getData();
+    }
+
+    public CouponResult validateFallback(String code, List<CouponLine> lines, Throwable failure) {
+        throw Fallbacks.translate("coupon service", failure);
     }
 }

@@ -1,3 +1,4 @@
+/*
 package org.praskanth.kafka;
 
 import org.praskanth.entity.Order;
@@ -26,7 +27,7 @@ public class OrderEventProducer {
     public void publishOrderCreated(Order order) {
         List<OrderItemPayload> items = order.getItems().stream()
                 .map(item -> OrderItemPayload.newBuilder()
-                        .setProductId(item.getProductId())
+                        .setProductId(item.stockId())
                         .setQuantity(item.getQuantity())
                         .setUnitPrice(toByteBuffer(item.getUnitPrice()))
                         .build())
@@ -56,3 +57,4 @@ public class OrderEventProducer {
         return ByteBuffer.wrap(scaled.unscaledValue().toByteArray());
     }
 }
+*/

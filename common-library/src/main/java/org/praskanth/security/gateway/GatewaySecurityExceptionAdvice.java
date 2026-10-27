@@ -3,6 +3,7 @@ package org.praskanth.security.gateway;
 import jakarta.servlet.http.HttpServletRequest;
 import org.praskanth.dto.ApiResponse;
 import org.praskanth.dto.ErrorResponse;
+import org.praskanth.exception.ErrorMessages;
 import org.springframework.boot.autoconfigure.condition.ConditionalOnClass;
 import org.springframework.core.Ordered;
 import org.springframework.core.annotation.Order;
@@ -31,13 +32,13 @@ public class GatewaySecurityExceptionAdvice {
         Authentication auth = SecurityContextHolder.getContext().getAuthentication();
         boolean anonymous = auth == null || auth instanceof AnonymousAuthenticationToken;
         return anonymous
-                ? build(HttpStatus.UNAUTHORIZED, "UNAUTHORIZED", "Authentication required", request)
-                : build(HttpStatus.FORBIDDEN, "FORBIDDEN", "You do not have permission to perform this action", request);
+                ? build(HttpStatus.UNAUTHORIZED, "UNAUTHORIZED", ErrorMessages.forCode("UNAUTHORIZED"), request)
+                : build(HttpStatus.FORBIDDEN, "FORBIDDEN", ErrorMessages.forCode("FORBIDDEN"), request);
     }
 
     @ExceptionHandler(AuthenticationException.class)
     public ResponseEntity<ApiResponse<Void>> handleAuthentication(AuthenticationException ex, HttpServletRequest request) {
-        return build(HttpStatus.UNAUTHORIZED, "UNAUTHORIZED", "Authentication required", request);
+        return build(HttpStatus.UNAUTHORIZED, "UNAUTHORIZED", ErrorMessages.forCode("UNAUTHORIZED"), request);
     }
 
     private ResponseEntity<ApiResponse<Void>> build(HttpStatus status, String code, String message, HttpServletRequest request) {

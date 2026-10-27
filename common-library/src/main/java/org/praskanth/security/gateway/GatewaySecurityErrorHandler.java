@@ -5,6 +5,7 @@ import jakarta.servlet.http.HttpServletRequest;
 import jakarta.servlet.http.HttpServletResponse;
 import org.praskanth.dto.ApiResponse;
 import org.praskanth.dto.ErrorResponse;
+import org.praskanth.exception.ErrorMessages;
 import org.springframework.http.MediaType;
 import org.springframework.security.access.AccessDeniedException;
 import org.springframework.security.core.AuthenticationException;
@@ -28,14 +29,14 @@ public class GatewaySecurityErrorHandler implements AuthenticationEntryPoint, Ac
     @Override
     public void commence(HttpServletRequest request, HttpServletResponse response,
                          AuthenticationException authException) throws IOException {
-        write(request, response, HttpServletResponse.SC_UNAUTHORIZED, "UNAUTHORIZED", "Authentication required");
+        write(request, response, HttpServletResponse.SC_UNAUTHORIZED, "UNAUTHORIZED", ErrorMessages.forCode("UNAUTHORIZED"));
     }
 
     @Override
     public void handle(HttpServletRequest request, HttpServletResponse response,
                        AccessDeniedException accessDeniedException) throws IOException {
         write(request, response, HttpServletResponse.SC_FORBIDDEN, "FORBIDDEN",
-                "You do not have permission to perform this action");
+                ErrorMessages.forCode("FORBIDDEN"));
     }
 
     private void write(HttpServletRequest request, HttpServletResponse response, int status, String code, String message)

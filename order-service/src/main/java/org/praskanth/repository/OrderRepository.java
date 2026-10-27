@@ -14,4 +14,7 @@ public interface OrderRepository extends JpaRepository<Order, Long> {
     List<Order> findByCheckoutRef(String checkoutRef);
 
     List<Order> findBySellerIdAndStatus(Long sellerId, OrderStatus orderStatus);
+
+    /** Orders still waiting for payment whose payment window is over. */
+    List<Order> findTop100ByStatusInAndExpiresAtBefore(java.util.Collection<OrderStatus> statuses, java.time.Instant now);
 }

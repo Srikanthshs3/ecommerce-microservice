@@ -2,12 +2,13 @@
   "type": "record",
   "name": "PaymentCompletedEvent",
   "namespace": "org.praskanth.events",
-  "doc": "Published by payment-service once a charge for an order succeeds.",
+  "doc": "Published by payment-service once the payment arrangement for ONE order is settled: either the customer paid online (method RAZORPAY/STRIPE) or chose cash on delivery (method COD, money is collected at the door). One event per order, even though the customer pays once per checkout.",
   "fields": [
     {"name": "eventId", "type": "string"},
     {"name": "orderId", "type": "long"},
     {"name": "amount", "type": {"type": "bytes", "logicalType": "decimal", "precision": 12, "scale": 2}},
     {"name": "transactionId", "type": "string"},
-    {"name": "completedAt", "type": {"type": "long", "logicalType": "timestamp-millis"}}
+    {"name": "completedAt", "type": {"type": "long", "logicalType": "timestamp-millis"}},
+    {"name": "method", "type": "string", "default": "ONLINE", "doc": "RAZORPAY, STRIPE or COD. Added later; older events read as ONLINE."}
   ]
 }

@@ -26,4 +26,11 @@ public class OrderResponse {
     private String couponCode;
     /** This order's part of the coupon discount (already subtracted from totalAmount). */
     private BigDecimal couponDiscount;
+    /** Shared by all orders (one per seller) created by one "Place order" click; the customer pays once per checkout. */
+    private String checkoutRef;
+    private String paymentMethod;
+    /** Recipient, street, city ... as one line (a snapshot taken when the order was placed). */
+    private String shippingAddress;
+    /** Last moment to pay; after that the order is cancelled automatically. */
+    private Instant expiresAt;
 }

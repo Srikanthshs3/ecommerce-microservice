@@ -4,7 +4,10 @@ import com.fasterxml.jackson.databind.ObjectMapper;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
 import org.praskanth.events.OrderCreatedEvent;
+import org.praskanth.events.OrderCancelledEvent;
 import org.praskanth.events.OrderItemPayload;
+import org.praskanth.events.OrderNotificationEvent;
+import org.praskanth.events.OrderNotificationItem;
 import org.springframework.kafka.core.KafkaTemplate;
 import org.springframework.scheduling.annotation.Scheduled;
 import org.springframework.stereotype.Component;
@@ -24,6 +27,9 @@ import java.util.UUID;
  * FAILED so it doesn't retry forever - a human/alert should look at FAILED rows, since they
  * mean a real order exists in the DB whose event was never delivered to Kafka.
  *
+ * Two event types go through this one outbox table, told apart by event_type: OrderCreatedEvent and
+ * OrderCancelledEvent (the compensation trigger for inventory-service and payment-service).
+ *
  * (OrderEventProducer is now dead code for the request path - this poller is the only place
  * that still builds a real OrderCreatedEvent, reusing the same Avro decimal-encoding convention
  * it used.)
@@ -37,7 +43,7 @@ public class OrderOutboxPoller {
 
     private final OutboxEventRepository outboxEventRepository;
     private final ObjectMapper objectMapper;
-    private final KafkaTemplate<String, OrderCreatedEvent> kafkaTemplate;
+    private final KafkaTemplate<String, Object> kafkaTemplate;
 
     @Scheduled(fixedDelay = 2000)
     @Transactional
@@ -47,7 +53,7 @@ public class OrderOutboxPoller {
 
         for (OutboxEvent outboxEvent : pending) {
             try {
-                OrderCreatedEvent event = toAvroEvent(outboxEvent);
+                Object event = toAvroEvent(outboxEvent);
                 kafkaTemplate.send(outboxEvent.getTopic(), outboxEvent.getPartitionKey(), event).get();
 
                 outboxEvent.setStatus(OutboxEvent.OutboxStatus.PUBLISHED);
@@ -71,7 +77,23 @@ public class OrderOutboxPoller {
         }
     }
 
-    private OrderCreatedEvent toAvroEvent(OutboxEvent outboxEvent) throws Exception {
+    private Object toAvroEvent(OutboxEvent outboxEvent) throws Exception {
+        if ("OrderNotificationEvent".equals(outboxEvent.getEventType())) {
+            return toNotificationEvent(objectMapper.readValue(outboxEvent.getJsonPayload(), OrderNotificationFields.class));
+        }
+        if ("OrderCancelledEvent".equals(outboxEvent.getEventType())) {
+            OrderCancelledFields c = objectMapper.readValue(outboxEvent.getJsonPayload(), OrderCancelledFields.class);
+            return OrderCancelledEvent.newBuilder()
+                    .setEventId(UUID.randomUUID().toString())
+                    .setOrderId(c.orderId())
+                    .setUserId(c.userId())
+                    .setReason(c.reason() == null ? "cancelled" : c.reason())
+                    .setCancelledAt(c.cancelledAt())
+                    .build();
+        }
+        if (!"OrderCreatedEvent".equals(outboxEvent.getEventType())) {
+            throw new IllegalStateException("Unknown outbox event type: " + outboxEvent.getEventType());
+        }
         OrderCreatedFields fields = objectMapper.readValue(outboxEvent.getJsonPayload(), OrderCreatedFields.class);
 
         List<OrderItemPayload> items = fields.items().stream()
@@ -89,6 +111,32 @@ public class OrderOutboxPoller {
                 .setItems(items)
                 .setTotalAmount(toByteBuffer(fields.totalAmount()))
                 .setCreatedAt(fields.createdAt())
+                .build();
+    }
+
+    private OrderNotificationEvent toNotificationEvent(OrderNotificationFields f) {
+        List<OrderNotificationItem> items = f.items().stream()
+                .map(i -> OrderNotificationItem.newBuilder()
+                        .setProductName(i.productName())
+                        .setVariantLabel(i.variantLabel())
+                        .setQuantity(i.quantity())
+                        .setUnitPrice(i.unitPrice())
+                        .build())
+                .toList();
+        return OrderNotificationEvent.newBuilder()
+                .setEventId(UUID.randomUUID().toString())
+                .setOrderId(f.orderId())
+                .setUserId(f.userId())
+                .setStage(f.stage())
+                .setCustomerEmail(f.customerEmail())
+                .setCustomerName(f.customerName())
+                .setRecipientName(f.recipientName())
+                .setShippingAddress(f.shippingAddress())
+                .setPaymentMethod(f.paymentMethod())
+                .setReason(f.reason())
+                .setTotalAmount(f.totalAmount())
+                .setItems(items)
+                .setOccurredAt(f.occurredAt())
                 .build();
     }
 

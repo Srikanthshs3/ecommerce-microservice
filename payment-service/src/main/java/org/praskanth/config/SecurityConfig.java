@@ -35,7 +35,7 @@ public class SecurityConfig {
                         .authenticationEntryPoint(gatewaySecurityErrorHandler)
                         .accessDeniedHandler(gatewaySecurityErrorHandler))
                 .authorizeHttpRequests(auth -> auth
-                        .requestMatchers("/actuator/**").permitAll()
+                        .requestMatchers("/actuator/**", "/api/v1/payment/webhooks/**").permitAll()
                         .anyRequest().authenticated())
                 .addFilterBefore(gatewayAuthenticationFilter, UsernamePasswordAuthenticationFilter.class);
 

@@ -41,7 +41,7 @@ public class PaymentCompletedConsumer {
         }
 
         try {
-            shippingService.createShipmentForOrder(event.getOrderId());
+            shippingService.createShipmentForOrder(event.getOrderId(), event.getMethod() == null ? null : event.getMethod().toString());
             ack.acknowledge();
         } catch (Exception ex) {
             redisTemplate.delete(dedupKey);

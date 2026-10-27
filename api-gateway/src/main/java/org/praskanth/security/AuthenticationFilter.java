@@ -87,12 +87,12 @@ public class AuthenticationFilter implements GlobalFilter, Ordered {
 
         // Never reachable from outside, whatever the route configuration says.
         if (path.startsWith(INTERNAL_PREFIX)) {
-            return onError(exchange, "NOT_FOUND", "Resource not found", HttpStatus.NOT_FOUND);
+            return onError(exchange, "NOT_FOUND", "We couldn't find what you were looking for.", HttpStatus.NOT_FOUND);
         }
         // Public-path matching works on the decoded path; refuse dot-segments so "/api/v1/auth/../user/x" can't be
         // used to make a protected resource look like a public one.
         if (hasDotSegment(path)) {
-            return onError(exchange, "BAD_REQUEST", "Malformed request path", HttpStatus.BAD_REQUEST);
+            return onError(exchange, "BAD_REQUEST", "We couldn't understand that web address.", HttpStatus.BAD_REQUEST);
         }
 
         String correlationId = request.getHeaders().getFirst(CORRELATION_ID_HEADER);
@@ -125,14 +125,14 @@ public class AuthenticationFilter implements GlobalFilter, Ordered {
         if (token == null) {
             return isPublic
                     ? proceed(exchange, chain, forwarded)
-                    : onError(exchange, "MISSING_TOKEN", "Missing or malformed Authorization header", HttpStatus.UNAUTHORIZED);
+                    : onError(exchange, "MISSING_TOKEN", "Please sign in to continue.", HttpStatus.UNAUTHORIZED);
         }
 
         Optional<JwtUtils.Identity> identity = jwtUtils.authenticate(token);
         if (identity.isEmpty()) {
             return isPublic
                     ? proceed(exchange, chain, forwarded) // bad token on an open endpoint == anonymous
-                    : onError(exchange, "INVALID_TOKEN", "Invalid or expired token", HttpStatus.UNAUTHORIZED);
+                    : onError(exchange, "INVALID_TOKEN", "Your session has expired. Please sign in again.", HttpStatus.UNAUTHORIZED);
         }
 
         JwtUtils.Identity id = identity.get();

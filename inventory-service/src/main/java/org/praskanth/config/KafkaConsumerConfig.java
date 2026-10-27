@@ -6,6 +6,8 @@ import io.confluent.kafka.serializers.KafkaAvroSerializerConfig;
 import org.apache.kafka.clients.consumer.ConsumerConfig;
 import org.apache.kafka.common.serialization.StringDeserializer;
 import org.praskanth.events.OrderCreatedEvent;
+import org.praskanth.events.OrderCancelledEvent;
+import org.praskanth.events.ShipmentStatusChangedEvent;
 import org.praskanth.events.PaymentFailedEvent;
 import org.praskanth.events.ProductCreatedEvent;
 import org.praskanth.events.ShipmentCreatedEvent;
@@ -123,6 +125,42 @@ public class KafkaConsumerConfig {
         ConcurrentKafkaListenerContainerFactory<String, ShipmentCreatedEvent> factory =
                 new ConcurrentKafkaListenerContainerFactory<>();
         factory.setConsumerFactory(shipmentCreatedConsumerFactory());
+        factory.getContainerProperties().setAckMode(ContainerProperties.AckMode.MANUAL_IMMEDIATE);
+        factory.setCommonErrorHandler(kafkaErrorHandler);
+        return factory;
+    }
+
+    // ---------- OrderCancelledEvent (compensating release: payment window expired, customer/seller cancelled) ----------
+
+    @Bean
+    public ConsumerFactory<String, OrderCancelledEvent> orderCancelledConsumerFactory() {
+        return new DefaultKafkaConsumerFactory<>(baseConfig());
+    }
+
+    @Bean
+    public ConcurrentKafkaListenerContainerFactory<String, OrderCancelledEvent> orderCancelledContainerFactory(
+            DefaultErrorHandler kafkaErrorHandler) {
+        ConcurrentKafkaListenerContainerFactory<String, OrderCancelledEvent> factory =
+                new ConcurrentKafkaListenerContainerFactory<>();
+        factory.setConsumerFactory(orderCancelledConsumerFactory());
+        factory.getContainerProperties().setAckMode(ContainerProperties.AckMode.MANUAL_IMMEDIATE);
+        factory.setCommonErrorHandler(kafkaErrorHandler);
+        return factory;
+    }
+
+    // ---------- ShipmentStatusChangedEvent (the parcel left: finalise the stock) ----------
+
+    @Bean
+    public ConsumerFactory<String, ShipmentStatusChangedEvent> shipmentStatusChangedConsumerFactory() {
+        return new DefaultKafkaConsumerFactory<>(baseConfig());
+    }
+
+    @Bean
+    public ConcurrentKafkaListenerContainerFactory<String, ShipmentStatusChangedEvent> shipmentStatusChangedContainerFactory(
+            DefaultErrorHandler kafkaErrorHandler) {
+        ConcurrentKafkaListenerContainerFactory<String, ShipmentStatusChangedEvent> factory =
+                new ConcurrentKafkaListenerContainerFactory<>();
+        factory.setConsumerFactory(shipmentStatusChangedConsumerFactory());
         factory.getContainerProperties().setAckMode(ContainerProperties.AckMode.MANUAL_IMMEDIATE);
         factory.setCommonErrorHandler(kafkaErrorHandler);
         return factory;
