@@ -29,6 +29,18 @@ public class OrderItem {
 
     private String productName;
 
+    /** Picture of the product at the moment it was ordered (a snapshot, like the name and price). */
+    @Column(length = 500)
+    private String productImage;
+
+    /** Chosen variant of the product (null for a product without variants). */
+    @Column(length = 40)
+    private String variantId;
+
+    /** "Blue / M" at the time of ordering. */
+    @Column(length = 200)
+    private String variantLabel;
+
     private String size;
 
     @Column(nullable = false)
@@ -44,4 +56,12 @@ public class OrderItem {
 
     @Column(nullable = false, precision = 12, scale = 2)
     private BigDecimal unitPrice;
+
+    /**
+     * The key under which inventory-service keeps the stock of this line: the variant's own stock for a variant
+     * (productId:variantId), the product's for a simple product. This is what travels in the order event.
+     */
+    public String stockId() {
+        return variantId == null || variantId.isBlank() ? productId : productId + ":" + variantId;
+    }
 }

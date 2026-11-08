@@ -39,7 +39,7 @@ public class InventoryReservationFailedConsumer {
         }
 
         try {
-            orderService.markCancelled(event.getOrderId(), event.getReason().toString());
+            orderService.markCancelledOutOfStock(event.getOrderId(), event.getReason().toString());
             ack.acknowledge();
         } catch (Exception ex) {
             redisTemplate.delete(dedupKey);

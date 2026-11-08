@@ -22,6 +22,9 @@ public class ErrorResponse {
     @Builder.Default
     private Instant timestamp = Instant.now();
 
+    /** Short code shown to the customer for server faults; the same code is in the log next to the stack trace. */
+    private String reference;
+
     /** Correlates this response with the logs/traces of the request (empty when tracing is off). */
     @Builder.Default
     private String traceId = MDC.get("traceId");

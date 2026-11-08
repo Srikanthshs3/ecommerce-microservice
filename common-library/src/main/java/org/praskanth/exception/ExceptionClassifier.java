@@ -18,6 +18,8 @@ final class ExceptionClassifier {
         CONCURRENT_UPDATE,
         /** Dependency down, timed out, no instance registered, circuit open -> 503 */
         UPSTREAM_UNAVAILABLE,
+        /** Our own database / Redis cannot be reached or is too slow -> 503 */
+        DATABASE_UNAVAILABLE,
         /** Dependency answered with an error status -> 502 */
         UPSTREAM_ERROR,
         /** Genuinely unexpected -> 500 */
@@ -40,6 +42,19 @@ final class ExceptionClassifier {
             "java.net.SocketTimeoutException",
             "java.net.UnknownHostException");
 
+    private static final Set<String> DATABASE_UNAVAILABLE = Set.of(
+            "org.springframework.dao.DataAccessResourceFailureException",
+            "org.springframework.dao.QueryTimeoutException",
+            "org.springframework.jdbc.CannotGetJdbcConnectionException",
+            "org.springframework.transaction.CannotCreateTransactionException",
+            "org.hibernate.exception.JDBCConnectionException",
+            "java.sql.SQLTransientConnectionException",
+            "com.zaxxer.hikari.pool.HikariPool$PoolInitializationException",
+            "com.mongodb.MongoTimeoutException",
+            "com.mongodb.MongoSocketException",
+            "org.springframework.data.redis.RedisConnectionFailureException",
+            "io.lettuce.core.RedisConnectionException");
+
     private static final Set<String> UPSTREAM_ERROR = Set.of(
             "org.springframework.web.client.RestClientResponseException");
 
@@ -52,7 +67,7 @@ final class ExceptionClassifier {
     }
 
     static Kind classify(Throwable error) {
-        boolean dataConflict = false, concurrent = false, unavailable = false, upstreamError = false;
+        boolean dataConflict = false, concurrent = false, unavailable = false, upstreamError = false, database = false;
 
         int depth = 0;
         for (Throwable t = error; t != null && depth < MAX_DEPTH; t = t.getCause() == t ? null : t.getCause(), depth++) {
@@ -64,12 +79,14 @@ final class ExceptionClassifier {
                 dataConflict |= DATA_CONFLICT.contains(name);
                 concurrent |= CONCURRENT_UPDATE.contains(name);
                 unavailable |= UPSTREAM_UNAVAILABLE.contains(name);
+                database |= DATABASE_UNAVAILABLE.contains(name);
                 upstreamError |= UPSTREAM_ERROR.contains(name);
             }
         }
 
         if (dataConflict) return Kind.DATA_CONFLICT;
         if (concurrent) return Kind.CONCURRENT_UPDATE;
+        if (database) return Kind.DATABASE_UNAVAILABLE;
         if (unavailable) return Kind.UPSTREAM_UNAVAILABLE;
         if (upstreamError) return Kind.UPSTREAM_ERROR;
         return Kind.OTHER;

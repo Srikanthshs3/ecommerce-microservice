@@ -44,6 +44,8 @@ public class SecurityConfig {
                         .requestMatchers("/api/v1/auth/**").permitAll()
                         // public: seller sign-up and the shopper-facing store page
                         .requestMatchers(HttpMethod.POST, "/api/v1/sellers/register").permitAll()
+                        // public: delivery partner sign-up
+                        .requestMatchers(HttpMethod.POST, "/api/v1/delivery-agents/register").permitAll()
                         .requestMatchers(HttpMethod.GET, "/api/v1/sellers/*/public").permitAll()
                         .requestMatchers("/swagger-ui/**", "/v3/api-docs/**", "/v3/api-docs.yaml").permitAll()
                         .requestMatchers("/actuator/health/**", "/actuator/prometheus").permitAll()

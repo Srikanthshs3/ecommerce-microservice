@@ -13,6 +13,7 @@ import org.praskanth.entity.User;
 import org.praskanth.enums.UserRole;
 import org.praskanth.event.UserRegisteredDomainEvent;
 import org.praskanth.exception.BadRequestException;
+import org.praskanth.exception.ServiceUnavailableException;
 import org.praskanth.exception.ConflictException;
 import org.praskanth.exception.NotFoundException;
 import org.praskanth.mapper.UserMapper;
@@ -131,7 +132,7 @@ public class UserServiceImpl implements UserService {
         Set<Role> roles = new HashSet<>();
         for (UserRole name : requested) {
             roles.add(roleRepo.findByName(name)
-                    .orElseThrow(() -> new BadRequestException("Role " + name + " not found")));
+                    .orElseThrow(() -> new ServiceUnavailableException("This option is not available right now. Please contact support if it keeps happening.", new IllegalStateException("Role " + name + " not found"))));
         }
         user.setRole(roles);
 
@@ -153,8 +154,11 @@ public class UserServiceImpl implements UserService {
             user.getSellerProfile().setKycStatus(SellerProfile.KycStatus.CLOSED);
             user.getSellerProfile().setStatusReason("Account deleted");
         }
-        refreshTokenService.revokeAllForUser(userId);
-        userRepo.delete(user); // soft delete + anonymisation, see @SQLDelete on User
+        refreshTokenService.revokeAllForUser(userId); // also flushes the seller-profile change above
+        // One explicit UPDATE instead of userRepo.delete(entity): it cannot be "forgotten" by the persistence context.
+        if (userRepo.softDelete(userId) != 1) {
+            throw new NotFoundException("We couldn't find that user.");
+        }
         log.info("Admin {} deleted user {}", actingAdminId, userId);
     }
 
@@ -175,7 +179,7 @@ public class UserServiceImpl implements UserService {
 
     private User findUser(Long userId) {
         return userRepo.findById(userId)
-                .orElseThrow(() -> new NotFoundException("User with ID " + userId + " not found"));
+                .orElseThrow(() -> new NotFoundException("We couldn't find that user."));
     }
 
     private User saveOrConflict(User user) {

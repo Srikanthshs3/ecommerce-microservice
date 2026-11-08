@@ -30,6 +30,7 @@ public class ApiGatewayProperties {
             "GET /api/v1/product/**",
             "GET /api/v1/category/**",
             "POST /api/v1/sellers/register",
+            "POST /api/v1/delivery-agents/register",
             "GET /api/v1/sellers/*/public",
             "/swagger-ui/**",
             "/v3/api-docs/**",

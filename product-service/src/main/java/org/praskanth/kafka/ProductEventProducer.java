@@ -44,6 +44,32 @@ public class ProductEventProducer {
                 });
     }
 
+    /**
+     * One inventory row per variant. The variant's stock key (productId:variantId) travels in the event's productId
+     * field, so inventory-service needs no change: it simply provisions a row for that key with the opening stock.
+     */
+    public void publishVariantCreated(Product product, String stockId, String label, BigDecimal price, int initialStock) {
+        ProductCreatedEvent event = ProductCreatedEvent.newBuilder()
+                .setEventId(UUID.randomUUID().toString())
+                .setProductId(stockId)
+                .setName(product.getName() + " (" + label + ")")
+                .setSellerId(product.getSellerId())
+                .setCategoryId(product.getCategoryId())
+                .setPrice(toByteBuffer(price))
+                .setInitialStock(Math.max(0, initialStock))
+                .setCreatedAt(product.getCreatedAt() != null ? product.getCreatedAt() : Instant.now())
+                .build();
+
+        kafkaTemplate.send(TOPIC, stockId, event)
+                .whenComplete((result, ex) -> {
+                    if (ex != null) {
+                        log.error("Failed to publish ProductCreatedEvent for variant {}", stockId, ex);
+                    } else {
+                        log.info("Published ProductCreatedEvent eventId={} for variant {}", event.getEventId(), stockId);
+                    }
+                });
+    }
+
     /** Avro's decimal logical type is encoded as scaled unscaled-bytes, per the .avsc precision/scale. */
     private ByteBuffer toByteBuffer(BigDecimal value) {
         BigDecimal scaled = value.setScale(2, java.math.RoundingMode.HALF_UP);

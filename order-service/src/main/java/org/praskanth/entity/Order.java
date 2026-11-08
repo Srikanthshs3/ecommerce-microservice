@@ -30,6 +30,13 @@ public class Order {
 
     private Long sellerId;
 
+    /** Who to e-mail about this order: a snapshot taken when it was placed. Null on old orders (they get no e-mails). */
+    @Column(length = 255)
+    private String customerEmail;
+
+    @Column(length = 255)
+    private String customerName;
+
     @Enumerated(EnumType.STRING)
     @Column(nullable = false)
     private OrderStatus status;
@@ -70,6 +77,16 @@ public class Order {
     private Instant createdAt;
 
     private Instant deliveryDate;
+
+    /** RAZORPAY, STRIPE or COD. Null until the customer has paid / chosen cash on delivery. */
+    @Column(length = 20)
+    private String paymentMethod;
+
+    /**
+     * Until when the customer may still pay. Stock is reserved for this long; after it the order is cancelled
+     * and the stock goes back (OrderService.expireUnpaidOrders). Null on old orders and once the order is confirmed.
+     */
+    private Instant expiresAt;
 
     @PrePersist
     protected void onCreate() {

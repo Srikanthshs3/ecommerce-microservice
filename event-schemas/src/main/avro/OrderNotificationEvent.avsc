@@ -1,0 +1,27 @@
+{
+  "type": "record",
+  "name": "OrderNotificationEvent",
+  "namespace": "org.praskanth.events",
+  "doc": "One customer-facing stage of an order (placed, packed, picked up, delivered, cancelled, out of stock). Published by order-service, turned into an e-mail by notification-service.",
+  "fields": [
+    {"name": "eventId", "type": "string"},
+    {"name": "orderId", "type": "long"},
+    {"name": "userId", "type": "long"},
+    {"name": "stage", "type": "string", "doc": "ORDER_PLACED | PACKED | OUT_FOR_DELIVERY | DELIVERED | CANCELLED | OUT_OF_STOCK"},
+    {"name": "customerEmail", "type": ["null", "string"], "default": null},
+    {"name": "customerName", "type": ["null", "string"], "default": null},
+    {"name": "recipientName", "type": ["null", "string"], "default": null},
+    {"name": "shippingAddress", "type": ["null", "string"], "default": null},
+    {"name": "paymentMethod", "type": ["null", "string"], "default": null},
+    {"name": "reason", "type": ["null", "string"], "default": null},
+    {"name": "totalAmount", "type": "string", "doc": "Already formatted, e.g. 1299.00"},
+    {"name": "items", "type": {"type": "array", "items": {
+      "type": "record", "name": "OrderNotificationItem", "fields": [
+        {"name": "productName", "type": "string"},
+        {"name": "variantLabel", "type": ["null", "string"], "default": null},
+        {"name": "quantity", "type": "int"},
+        {"name": "unitPrice", "type": "string"}
+      ]}}},
+    {"name": "occurredAt", "type": {"type": "long", "logicalType": "timestamp-millis"}}
+  ]
+}

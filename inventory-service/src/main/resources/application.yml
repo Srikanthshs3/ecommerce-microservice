@@ -12,6 +12,7 @@ spring:
     import: optional:file:./.env[.properties],optional:file:../.env[.properties],optional:configserver:${SPRING_CLOUD_CONFIG_URI:http://localhost:8888}
   flyway:
     enabled: true
+    connect-retries: 10
     # Same reasoning as order-service: this DB already has tables from ddl-auto: update,
     # so baseline-on-migrate lets Flyway adopt it at "version 1" without requiring a V1
     # migration to exist, then apply V2+ normally.

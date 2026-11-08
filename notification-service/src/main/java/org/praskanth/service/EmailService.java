@@ -3,8 +3,11 @@ package org.praskanth.service;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.beans.factory.annotation.Value;
+import jakarta.mail.MessagingException;
+import jakarta.mail.internet.MimeMessage;
 import org.springframework.mail.SimpleMailMessage;
 import org.springframework.mail.javamail.JavaMailSender;
+import org.springframework.mail.javamail.MimeMessageHelper;
 import org.springframework.stereotype.Service;
 
 @Service
@@ -62,6 +65,25 @@ public class EmailService {
             log.info("Password reset email sent to: {}", toEmail);
         } catch (Exception e) {
             log.error("Failed to send password reset email to: {}. Error: {}", toEmail, e.getMessage());
+        }
+    }
+
+    /**
+     * Sends an HTML e-mail with a plain-text fallback. Unlike the older methods this one THROWS when sending fails, so
+     * the Kafka listener does not acknowledge the event and the error handler retries it.
+     */
+    public void sendHtmlEmail(String toEmail, String subject, String html, String text) {
+        try {
+            MimeMessage message = mailSender.createMimeMessage();
+            MimeMessageHelper helper = new MimeMessageHelper(message, true, "UTF-8");
+            helper.setFrom(username);
+            helper.setTo(toEmail);
+            helper.setSubject(subject);
+            helper.setText(text, html);
+            mailSender.send(message);
+            log.info("E-mail '{}' sent to: {}", subject, toEmail);
+        } catch (MessagingException e) {
+            throw new IllegalStateException("Could not build the e-mail '" + subject + "'", e);
         }
     }
 }

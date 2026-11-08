@@ -12,6 +12,7 @@ spring:
     import: optional:file:./.env[.properties],optional:file:../.env[.properties],optional:configserver:${SPRING_CLOUD_CONFIG_URI:http://localhost:8888}
   flyway:
     enabled: true
+    connect-retries: 10
     # This DB already has tables created by Hibernate's ddl-auto: update. baseline-on-migrate
     # tells Flyway "don't panic that V1 never ran against this DB, just record it as already
     # being at version 1 and apply anything newer (V2+) from here on" - safe to add onto an

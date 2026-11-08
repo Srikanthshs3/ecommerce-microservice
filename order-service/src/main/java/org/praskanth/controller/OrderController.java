@@ -5,6 +5,7 @@ import org.praskanth.dto.ApiResponse;
 import org.praskanth.dto.OrderRequest;
 import org.praskanth.dto.OrderResponse;
 import org.praskanth.dto.UserResponse;
+import org.praskanth.exception.ForbiddenOperationException;
 import org.praskanth.security.gateway.GatewayUser;
 import org.praskanth.service.OrderService;
 import jakarta.validation.Valid;
@@ -37,13 +38,34 @@ public class OrderController {
     }
 
     @GetMapping("/{id}")
-    public ResponseEntity<ApiResponse<OrderResponse>> getById(@PathVariable Long id) {
-        return ResponseEntity.ok(ApiResponse.success(orderService.getById(id)));
+    public ResponseEntity<ApiResponse<OrderResponse>> getById(@PathVariable Long id,
+                                                              @AuthenticationPrincipal GatewayUser caller) {
+        return ResponseEntity.ok(ApiResponse.success(orderService.getByIdForCaller(id, caller)));
     }
 
+    /** A customer sees only their own orders (this used to trust the id in the URL: anyone could read anyone's orders). */
     @GetMapping("/user/{userId}")
-    public ResponseEntity<ApiResponse<List<OrderResponse>>> getByUser(@PathVariable Long userId) {
+    public ResponseEntity<ApiResponse<List<OrderResponse>>> getByUser(@PathVariable Long userId,
+                                                                      @AuthenticationPrincipal GatewayUser caller) {
+        if (!caller.isAdmin() && !caller.id().equals(userId)) {
+            throw new ForbiddenOperationException("You can only view your own orders.");
+        }
         return ResponseEntity.ok(ApiResponse.success(orderService.getByUser(userId)));
+    }
+
+    /** Give up on one unpaid order. */
+    @PostMapping("/{id}/cancel")
+    public ResponseEntity<ApiResponse<Void>> cancelUnpaid(@PathVariable Long id, @AuthenticationPrincipal GatewayUser caller) {
+        orderService.cancelUnpaidByCustomer(id, caller);
+        return ResponseEntity.ok(ApiResponse.success("Order cancelled", null));
+    }
+
+    /** Give up on the whole unpaid checkout (all its orders). */
+    @PostMapping("/checkout/{checkoutRef}/cancel")
+    public ResponseEntity<ApiResponse<Void>> cancelCheckout(@PathVariable String checkoutRef,
+                                                            @AuthenticationPrincipal GatewayUser caller) {
+        orderService.cancelCheckoutByCustomer(checkoutRef, caller);
+        return ResponseEntity.ok(ApiResponse.success("Checkout cancelled", null));
     }
 
     @GetMapping("/seller/{sellerId}")

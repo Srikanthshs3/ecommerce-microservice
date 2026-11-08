@@ -13,7 +13,7 @@ import org.springframework.web.bind.annotation.RequestBody;
  * gateway's X-User-* headers by {@link FeignConfig#identityPropagationInterceptor()}; release() is called from a
  * Kafka consumer thread, where there is no user - coupon-service allows that one endpoint without identity.
  */
-@FeignClient(name = "coupon-service")
+@FeignClient(name = "coupon-service", fallbackFactory = CouponApiClientFallbackFactory.class)
 public interface CouponApiClient {
 
     /** Validates again and uses the coupon for this checkout. Idempotent per checkoutRef. */

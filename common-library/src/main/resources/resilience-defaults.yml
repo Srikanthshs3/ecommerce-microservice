@@ -1,0 +1,123 @@
+# =====================================================================================================================
+#  Resilience defaults for EVERY service (lowest priority: override anything in the config repo).
+#
+#  The four patterns and where they apply:
+#   * Circuit breaker  stops calling a dependency that keeps failing, so callers fail fast instead of piling up.
+#   * Retry            repeats a call that failed for a TRANSIENT reason (connection / 502 / 503 / 504). Only for calls that
+#                      are safe to repeat (reads, idempotent writes). Never for "charge the card"-style calls.
+#   * Bulkhead         caps how many concurrent calls one dependency may occupy, so a slow service cannot use up all threads.
+#   * Time limit       blocking calls get connect/read timeouts (resilience.http.*); async calls get a TimeLimiter.
+#  Instance names (productService, ...) are referenced by the annotations in the *ApiClient classes.
+# =====================================================================================================================
+resilience:
+  http:
+    enabled: true
+    connect-timeout: 2s
+    read-timeout: 6s
+
+# Outer bulkhead: bounded request threads and queue per service, and database waits that give up quickly.
+server:
+  tomcat:
+    threads:
+      max: 200
+    accept-count: 100
+    connection-timeout: 10s
+spring:
+  datasource:
+    hikari:
+      connection-timeout: 5000      # fail a request after 5 s of waiting for a DB connection instead of 30 s
+
+resilience4j:
+  circuitbreaker:
+    configs:
+      default:
+        registerHealthIndicator: true
+        slidingWindowType: COUNT_BASED
+        slidingWindowSize: 20
+        minimumNumberOfCalls: 10
+        failureRateThreshold: 50
+        slowCallDurationThreshold: 4s          # a call slower than this counts as "slow"
+        slowCallRateThreshold: 80              # ... and the circuit opens when 80 % of calls are slow
+        waitDurationInOpenState: 10s
+        permittedNumberOfCallsInHalfOpenState: 3
+        automaticTransitionFromOpenToHalfOpenEnabled: true
+        # The other service ANSWERED "you asked for something wrong": that is not a sick dependency.
+        ignoreExceptions:
+          - org.praskanth.exception.NotFoundException
+          - org.praskanth.exception.BadRequestException
+          - org.praskanth.exception.ConflictException
+          - org.praskanth.exception.ForbiddenOperationException
+          - org.praskanth.exception.UnauthorizedException
+          - org.praskanth.exception.TooManyRequestsException
+          - org.springframework.web.client.HttpClientErrorException
+    instances:
+      productService: { baseConfig: default }
+      inventoryService: { baseConfig: default }
+      couponService: { baseConfig: default }
+      orderService: { baseConfig: default }
+      categoryService: { baseConfig: default }
+      userService: { baseConfig: default }
+      cartService: { baseConfig: default }
+      paymentGateway:                          # Razorpay / Stripe: be quick to open, slow to close again
+        baseConfig: default
+        slidingWindowSize: 10
+        minimumNumberOfCalls: 5
+        waitDurationInOpenState: 30s
+        slowCallDurationThreshold: 8s
+
+  retry:
+    configs:
+      default:
+        maxAttempts: 3                          # first try + 2 retries
+        waitDuration: 200ms
+        enableExponentialBackoff: true          # 200 ms, 400 ms ...
+        exponentialBackoffMultiplier: 2
+        enableRandomizedWait: true              # jitter, so callers do not all retry at the same instant
+        randomizedWaitFactor: 0.5
+        # Only transient trouble is retried. Everything else (404, 400, business errors) fails at once.
+        retryExceptions:
+          - org.springframework.web.client.ResourceAccessException
+          - org.springframework.web.client.HttpServerErrorException$BadGateway
+          - org.springframework.web.client.HttpServerErrorException$ServiceUnavailable
+          - org.springframework.web.client.HttpServerErrorException$GatewayTimeout
+        ignoreExceptions:
+          - io.github.resilience4j.circuitbreaker.CallNotPermittedException   # circuit is open: do not hammer it
+    instances:
+      productService: { baseConfig: default }
+      inventoryService: { baseConfig: default }
+      couponService: { baseConfig: default }
+      orderService: { baseConfig: default }
+      categoryService: { baseConfig: default }
+      userService: { baseConfig: default }
+
+  bulkhead:                                     # semaphore bulkhead: at most N calls in flight, extra callers fail fast
+    configs:
+      default:
+        maxConcurrentCalls: 25
+        maxWaitDuration: 100ms
+    instances:
+      productService: { baseConfig: default, maxConcurrentCalls: 40 }
+      inventoryService: { baseConfig: default, maxConcurrentCalls: 40 }
+      couponService: { baseConfig: default }
+      orderService: { baseConfig: default }
+      categoryService: { baseConfig: default }
+      userService: { baseConfig: default }
+      imageProcessing:                          # resizing pictures is CPU heavy: only 3 at the same time per instance
+        maxConcurrentCalls: 3
+        maxWaitDuration: 2s
+
+  thread-pool-bulkhead:                         # separate threads for the payment gateway, so a slow gateway cannot block others
+    instances:
+      paymentGateway:
+        coreThreadPoolSize: 4
+        maxThreadPoolSize: 8
+        queueCapacity: 10
+
+  timelimiter:
+    configs:
+      default:
+        timeoutDuration: 10s
+        cancelRunningFuture: true
+    instances:
+      paymentGateway:
+        timeoutDuration: 15s

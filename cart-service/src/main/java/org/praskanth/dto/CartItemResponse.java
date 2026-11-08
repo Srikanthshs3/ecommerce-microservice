@@ -12,6 +12,9 @@ public class CartItemResponse {
     private String productName;
     private Long sellerId;
     private String imageUrl;
+    private String variantId;
+    /** e.g. "Blue / M"; null for a product without variants */
+    private String variantLabel;
     private String size;
     private Integer quantity;
 

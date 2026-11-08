@@ -79,7 +79,7 @@ public class EmailVerificationService {
             throw new BadRequestException("Too many incorrect attempts. Please request a new OTP");
         }
         if (!constantTimeEquals(stored, otp)) {
-            throw new BadRequestException("Invalid OTP");
+            throw new BadRequestException("That code isn't correct. Please check it and try again.");
         }
 
         redis.delete(otpKey);

@@ -1,5 +1,10 @@
 package org.praskanth.client;
 
+import io.github.resilience4j.bulkhead.annotation.Bulkhead;
+import io.github.resilience4j.circuitbreaker.annotation.CircuitBreaker;
+import io.github.resilience4j.retry.annotation.Retry;
+import org.praskanth.resilience.Fallbacks;
+
 import lombok.RequiredArgsConstructor;
 import org.praskanth.dto.ApiResponse;
 import org.praskanth.exception.ServiceUnavailableException;
@@ -22,6 +27,10 @@ public class ProductClient {
 
     private final RestTemplate restTemplate;
 
+    /** Fail closed (see above). The breaker/bulkhead sit outside the method; the 503 message is produced by the existing catch. */
+    @Retry(name = "productService", fallbackMethod = "countFallback")
+    @CircuitBreaker(name = "productService")
+    @Bulkhead(name = "productService")
     public long countProductsInCategory(String categoryId) {
         try {
             ResponseEntity<ApiResponse<Long>> response = restTemplate.exchange(
@@ -33,12 +42,19 @@ public class ProductClient {
                     categoryId);
             ApiResponse<Long> body = response.getBody();
             if (body == null || body.getData() == null) {
-                throw new ServiceUnavailableException("Could not verify whether products still use this category");
+                throw new ServiceUnavailableException("We couldn't check whether this category is still in use. Please try again shortly.");
             }
             return body.getData();
         } catch (RestClientException e) {
-            throw new ServiceUnavailableException(
-                    "Product service is unavailable, so category usage cannot be verified. Please try again shortly.", e);
+            throw e; // retried / counted by the breaker; countFallback turns what is left into the 503 below
         }
+    }
+
+    public long countFallback(String categoryId, Throwable failure) {
+        if (failure instanceof ServiceUnavailableException unavailable) {
+            throw unavailable;
+        }
+        throw new ServiceUnavailableException(
+                "Product service is unavailable, so category usage cannot be verified. Please try again shortly.", failure);
     }
 }

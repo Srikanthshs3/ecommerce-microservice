@@ -16,7 +16,7 @@ public class ShipmentEventProducer {
 
     private static final String TOPIC = "shipment.created";
 
-    private final KafkaTemplate<String, ShipmentCreatedEvent> kafkaTemplate;
+    private final KafkaTemplate<String, Object> kafkaTemplate;
 
     public void publishShipmentCreated(Long orderId, String trackingNumber, String carrier) {
         ShipmentCreatedEvent event = ShipmentCreatedEvent.newBuilder()

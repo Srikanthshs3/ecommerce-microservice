@@ -7,13 +7,20 @@ import org.praskanth.entity.Order;
 import org.praskanth.entity.OrderItem;
 import org.praskanth.entity.OrderStatus;
 import org.praskanth.exception.BadRequestException;
+import org.praskanth.exception.ConflictException;
+import org.praskanth.exception.ForbiddenOperationException;
 import org.praskanth.exception.NotFoundException;
 import org.praskanth.exception.ServiceUnavailableException;
+import org.praskanth.outbox.OrderCancelledFields;
+import org.praskanth.notification.OrderNotificationPublisher;
+import org.praskanth.notification.OrderStage;
 import org.praskanth.outbox.OrderCreatedFields;
 import org.praskanth.outbox.OutboxEventWriter;
 import org.praskanth.repository.OrderRepository;
+import org.praskanth.security.gateway.GatewayUser;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
+import org.springframework.beans.factory.annotation.Value;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 import org.springframework.transaction.support.TransactionSynchronization;
@@ -21,6 +28,8 @@ import org.springframework.transaction.support.TransactionSynchronizationManager
 
 import java.math.BigDecimal;
 import java.math.RoundingMode;
+import java.time.Instant;
+import java.time.temporal.ChronoUnit;
 import java.time.LocalDateTime;
 import java.util.HashMap;
 import java.util.HashSet;
@@ -47,11 +56,18 @@ import java.util.stream.Collectors;
 public class OrderService {
 
     private static final String ORDER_CREATED_TOPIC = "order.created";
+    private static final String ORDER_CANCELLED_TOPIC = "order.cancelled";
+    private static final Set<String> PAYMENT_METHODS = Set.of("RAZORPAY", "STRIPE", "COD");
 
     private final OrderRepository orderRepository;
     private final OutboxEventWriter outboxEventWriter;
     private final CartApiClient cartApiClient;
     private final CouponApiClient couponApiClient;
+    private final OrderNotificationPublisher notificationPublisher;
+
+    /** How long a customer has to pay; stock stays reserved this long. */
+    @Value("${order.payment-window-minutes:15}")
+    private long paymentWindowMinutes;
 
     @Transactional
     public List<OrderResponse> create(OrderRequest request, UserResponse user) {
@@ -61,7 +77,7 @@ public class OrderService {
 
         CartResponse cart = cartApiClient.getUserCart().getData();
         if (cart==null || cart.getCartItems() == null || cart.getCartItems().isEmpty()) {
-            throw new BadRequestException("Cannot place order: Cart is empty.");
+            throw new BadRequestException("Your cart is empty. Add something to your cart before placing an order.");
         }
 
         Map<Long, List<CartItemResponse>> itemsBySeller = cart.getCartItems().stream()
@@ -70,10 +86,12 @@ public class OrderService {
         // Coupon: used (re-validated, counted) BEFORE anything is saved, so a coupon that stopped being valid
         // fails the whole checkout cleanly. If the transaction later does not commit, the use is given back.
         String appliedCoupon = null;
-        String checkoutRef = null;
+        // One id for every order of this click (one per seller). The customer pays ONCE for the whole checkout, and the
+        // coupon is redeemed once under the same id.
+        String checkoutRef = UUID.randomUUID().toString();
+        Instant expiresAt = Instant.now().plus(paymentWindowMinutes, ChronoUnit.MINUTES);
         Map<Long, BigDecimal> couponShares = Map.of();
         if (cart.getCouponCode() != null && !cart.getCouponCode().isBlank()) {
-            checkoutRef = UUID.randomUUID().toString();
             appliedCoupon = cart.getCouponCode();
             couponShares = redeemCoupon(appliedCoupon, checkoutRef, itemsBySeller);
         }
@@ -97,6 +115,8 @@ public class OrderService {
 
             Order order = Order.builder()
                     .userId(user.getId())
+                    .customerEmail(user.getEmail())
+                    .customerName(user.getName())
                     .sellerId(sellerId)
                     .status(OrderStatus.PENDING)
                     .shippingAddressId(selectedAddress.getId())
@@ -108,6 +128,7 @@ public class OrderService {
                     .couponCode(appliedCoupon)
                     .couponDiscount(couponShare)
                     .checkoutRef(checkoutRef)
+                    .expiresAt(expiresAt)
                     .build();
 
             // Map and bind order items to this order
@@ -116,6 +137,9 @@ public class OrderService {
                             .order(order)
                             .productId(cartItem.getProductId())
                             .productName(cartItem.getProductName())
+                            .productImage(cartItem.getImageUrl())
+                            .variantId(cartItem.getVariantId())
+                            .variantLabel(cartItem.getVariantLabel())
                             .size(cartItem.getSize())
                             .quantity(cartItem.getQuantity())
                             .unitPrice(cartItem.getUnitSellingPrice())
@@ -144,7 +168,7 @@ public class OrderService {
                             savedOrder.getId(),
                             savedOrder.getUserId(),
                             savedOrder.getItems().stream()
-                                    .map(i -> new OrderCreatedFields.ItemField(i.getProductId(), i.getQuantity(), i.getUnitPrice()))
+                                    .map(i -> new OrderCreatedFields.ItemField(i.stockId(), i.getQuantity(), i.getUnitPrice()))
                                     .toList(),
                             savedOrder.getTotalAmount(),
                             savedOrder.getCreatedAt()
@@ -273,6 +297,22 @@ public class OrderService {
         return toResponse(findOrThrow(id));
     }
 
+    /** Same as {@link #getById(Long)} but only for the customer who owns the order, its seller, or an admin. */
+    public OrderResponse getByIdForCaller(Long id, GatewayUser caller) {
+        Order order = findOrThrow(id);
+        boolean owner = order.getUserId().equals(caller.id());
+        boolean seller = order.getSellerId() != null && order.getSellerId().equals(caller.id());
+        if (!owner && !seller && !caller.isAdmin()) {
+            throw new ForbiddenOperationException("This order belongs to another customer.");
+        }
+        return toResponse(order);
+    }
+
+    /** Used by payment-service: every order of one checkout (internal API, no caller). */
+    public List<OrderResponse> getByCheckoutRef(String checkoutRef) {
+        return orderRepository.findByCheckoutRef(checkoutRef).stream().map(this::toResponse).toList();
+    }
+
     public List<OrderResponse> getByUser(Long userId) {
         return orderRepository.findByUserId(userId).stream().map(this::toResponse).toList();
     }
@@ -297,32 +337,153 @@ public class OrderService {
     /** Triggered by InventoryReservationFailedEvent. */
     @Transactional
     public void markCancelled(Long orderId, String reason) {
+        cancel(orderId, reason, false, false);
+    }
+
+    /** Same, but tells the customer the item is out of stock (InventoryReservationFailedEvent). */
+    @Transactional
+    public void markCancelledOutOfStock(Long orderId, String reason) {
+        cancel(orderId, reason, false, true);
+    }
+
+    private void cancel(Long orderId, String reason, boolean returnedFromTransit, boolean outOfStock) {
         Order order = findOrThrow(orderId);
-        if (order.getStatus() == OrderStatus.CANCELLED || order.getStatus() == OrderStatus.SHIPPED) {
+        boolean inTransit = order.getStatus() == OrderStatus.OUT_FOR_DELIVERY && !returnedFromTransit;
+        if (order.getStatus() == OrderStatus.CANCELLED || order.getStatus() == OrderStatus.SHIPPED
+                || inTransit || order.getStatus() == OrderStatus.DELIVERED) {
             log.info("Order {} is already {}, ignoring CANCELLED transition ({})", orderId, order.getStatus(), reason);
             return;
         }
         order.setStatus(OrderStatus.CANCELLED);
         order.setCancellationReason(reason);
+        order.setExpiresAt(null);
         orderRepository.save(order);
         log.info("Order {} -> CANCELLED ({})", orderId, reason);
+
+        // Compensation, same transaction as the status change (outbox): inventory-service puts the stock back,
+        // payment-service voids the unpaid payment or refunds a paid one.
+        outboxEventWriter.write(
+                "OrderCancelledEvent",
+                ORDER_CANCELLED_TOPIC,
+                String.valueOf(order.getId()),
+                new OrderCancelledFields(order.getId(), order.getUserId(), reason, Instant.now())
+        );
         releaseCouponIfCheckoutFullyCancelled(order);
+        notificationPublisher.publish(order, outOfStock ? OrderStage.OUT_OF_STOCK : OrderStage.CANCELLED, reason);
     }
 
     /** Triggered by PaymentCompletedEvent. */
     @Transactional
-    public void markConfirmed(Long orderId) {
+    public void markConfirmed(Long orderId, String paymentMethod) {
         Order order = findOrThrow(orderId);
         if (order.getStatus() != OrderStatus.AWAITING_PAYMENT) {
             log.info("Order {} is {} (not AWAITING_PAYMENT), ignoring CONFIRMED transition", orderId, order.getStatus());
             return;
         }
         order.setStatus(OrderStatus.CONFIRMED);
+        order.setExpiresAt(null); // paid (or cash on delivery chosen): no more payment window
+        if (paymentMethod != null && PAYMENT_METHODS.contains(paymentMethod)) {
+            order.setPaymentMethod(paymentMethod);
+        }
         orderRepository.save(order);
-        log.info("Order {} -> CONFIRMED", orderId);
+        log.info("Order {} -> CONFIRMED ({})", orderId, paymentMethod);
+        notificationPublisher.publish(order, OrderStage.ORDER_PLACED, null);
     }
 
-    /** Triggered by ShipmentCreatedEvent. */
+    /**
+     * The customer gives up before paying. Allowed only while nothing was paid (PENDING / AWAITING_PAYMENT): paid orders
+     * are cancelled through the seller/shipping flow, which also knows whether the parcel already left.
+     */
+    @Transactional
+    public void cancelUnpaidByCustomer(Long orderId, GatewayUser caller) {
+        Order order = findOrThrow(orderId);
+        if (!order.getUserId().equals(caller.id())) {
+            throw new ForbiddenOperationException("This order belongs to another customer.");
+        }
+        if (order.getStatus() != OrderStatus.PENDING && order.getStatus() != OrderStatus.AWAITING_PAYMENT) {
+            throw new ConflictException("Order " + orderId + " is " + order.getStatus() + " and can no longer be cancelled here.");
+        }
+        markCancelled(orderId, "Cancelled by customer before payment");
+    }
+
+    /** "Cancel" on the payment page: drops every still-unpaid order of the checkout. */
+    @Transactional
+    public void cancelCheckoutByCustomer(String checkoutRef, GatewayUser caller) {
+        List<Order> orders = orderRepository.findByCheckoutRef(checkoutRef);
+        if (orders.isEmpty()) {
+            throw new NotFoundException("We couldn't find that checkout. Please start again from your cart.");
+        }
+        for (Order order : orders) {
+            if (!order.getUserId().equals(caller.id())) {
+                throw new ForbiddenOperationException("This checkout belongs to another customer.");
+            }
+        }
+        for (Order order : orders) {
+            if (order.getStatus() == OrderStatus.PENDING || order.getStatus() == OrderStatus.AWAITING_PAYMENT) {
+                markCancelled(order.getId(), "Cancelled by customer before payment");
+            }
+        }
+    }
+
+    /** Ids of unpaid orders whose payment window is over (the scheduler cancels them one by one, each in its own transaction). */
+    @Transactional(readOnly = true)
+    public List<Long> findExpiredUnpaidOrderIds() {
+        return orderRepository.findTop100ByStatusInAndExpiresAtBefore(
+                        List.of(OrderStatus.PENDING, OrderStatus.AWAITING_PAYMENT), Instant.now())
+                .stream().map(Order::getId).toList();
+    }
+
+    /**
+     * Triggered by ShipmentStatusChangedEvent: mirrors the shipment's progress onto the order. Each step is only
+     * applied from the status(es) that may precede it, so a duplicate or out-of-order event changes nothing.
+     */
+    @Transactional
+    public void applyShipmentStatus(Long orderId, String shipmentStatus, String note) {
+        switch (shipmentStatus) {
+            // READY_TO_SHIP also arrives from OUT_FOR_DELIVERY: a failed delivery attempt puts the parcel back in the pool.
+            case "READY_TO_SHIP" -> moveOrder(orderId, OrderStatus.READY_TO_SHIP, OrderStatus.CONFIRMED, OrderStatus.OUT_FOR_DELIVERY);
+            case "OUT_FOR_DELIVERY" -> moveOrder(orderId, OrderStatus.OUT_FOR_DELIVERY, OrderStatus.CONFIRMED, OrderStatus.READY_TO_SHIP);
+            case "DELIVERED" -> moveOrder(orderId, OrderStatus.DELIVERED, OrderStatus.OUT_FOR_DELIVERY);
+            // A parcel the agent could not deliver goes back to the seller: allowed even though the order was on the road.
+            case "CANCELLED" -> cancel(orderId, note == null || note.isBlank() ? "Cancelled" : note, true, false);
+            default -> log.debug("Order {}: shipment status {} needs no order change", orderId, shipmentStatus);
+        }
+    }
+
+    private void moveOrder(Long orderId, OrderStatus target, OrderStatus... allowedFrom) {
+        Order order = findOrThrow(orderId);
+        if (order.getStatus() == target) {
+            return;
+        }
+        if (!java.util.Arrays.asList(allowedFrom).contains(order.getStatus())) {
+            log.info("Order {} is {}, ignoring transition to {}", orderId, order.getStatus(), target);
+            return;
+        }
+        OrderStatus before = order.getStatus();
+        order.setStatus(target);
+        orderRepository.save(order);
+        log.info("Order {} -> {}", orderId, target);
+        notifyMoved(order, before, target);
+    }
+
+    /**
+     * E-mails only the steps the customer cares about. READY_TO_SHIP after a failed delivery attempt (OUT_FOR_DELIVERY ->
+     * READY_TO_SHIP) is not "packed" again, so it is not announced twice.
+     */
+    private void notifyMoved(Order order, OrderStatus before, OrderStatus target) {
+        switch (target) {
+            case READY_TO_SHIP -> {
+                if (before == OrderStatus.CONFIRMED) {
+                    notificationPublisher.publish(order, OrderStage.PACKED, null);
+                }
+            }
+            case OUT_FOR_DELIVERY -> notificationPublisher.publish(order, OrderStage.OUT_FOR_DELIVERY, null);
+            case DELIVERED -> notificationPublisher.publish(order, OrderStage.DELIVERED, null);
+            default -> { }
+        }
+    }
+
+    /** Triggered by ShipmentCreatedEvent (legacy: shipping-service no longer publishes it). */
     @Transactional
     public void markShipped(Long orderId) {
         Order order = findOrThrow(orderId);
@@ -337,7 +498,7 @@ public class OrderService {
 
     private Order findOrThrow(Long id) {
         return orderRepository.findById(id)
-                .orElseThrow(() -> new NotFoundException("Order not found: " + id));
+                .orElseThrow(() -> new NotFoundException("We couldn't find that order."));
     }
 
     private AddressResponse shippingAddress(UserResponse user, Long requestedAddressId) {
@@ -350,7 +511,7 @@ public class OrderService {
         if (requestedAddressId != null) {
             return addresses.stream()
                     .filter(address -> address.getId().equals(requestedAddressId)).findFirst()
-                    .orElseThrow(() -> new BadRequestException("Address ID " + requestedAddressId + " does not belong to this user."));
+                    .orElseThrow(() -> new BadRequestException("That address does not belong to your account."));
         }
 
         return addresses.stream().filter(AddressResponse::isDefault).findFirst().orElseGet(() -> {
@@ -384,9 +545,16 @@ public class OrderService {
                 .orderDate(order.getCreatedAt())
                 .couponCode(order.getCouponCode())
                 .couponDiscount(order.getCouponDiscount())
+                .checkoutRef(order.getCheckoutRef())
+                .paymentMethod(order.getPaymentMethod())
+                .shippingAddress(order.getShippingAddress())
+                .expiresAt(order.getExpiresAt())
                 .items(order.getItems().stream().map(i -> OrderItemResponse.builder()
                         .productId(i.getProductId())
                         .productName(i.getProductName())
+                        .productImage(i.getProductImage())
+                        .variantId(i.getVariantId())
+                        .variantLabel(i.getVariantLabel())
                         .quantity(i.getQuantity())
                         .unitPrice(i.getUnitPrice())
                         .build()).toList())

@@ -14,6 +14,11 @@ import java.math.BigDecimal;
 public class OrderItemResponse {
     private String productId;
     private String productName;
+    private String variantId;
+    /** "Blue / M"; null for a product without variants */
+    private String variantLabel;
+    /** main picture of the product when it was ordered; null when it had none */
+    private String productImage;
     private Integer quantity;
     private BigDecimal unitPrice;
 }

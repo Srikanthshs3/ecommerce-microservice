@@ -13,6 +13,7 @@ spring:
     import: optional:file:./.env[.properties],optional:file:../.env[.properties],optional:configserver:${SPRING_CLOUD_CONFIG_URI:http://localhost:8888}
   flyway:
     enabled: true
+    connect-retries: 10
     # Same reasoning as order-service/inventory-service: adopt the existing DB (created by
     # ddl-auto: update) at "version 1" without requiring a V1 migration, then apply V2+.
     baseline-on-migrate: true
@@ -24,13 +25,20 @@ spring:
 # values override whatever is set locally here, so it can't be flipped in this file).
 
 payment:
-  gateway:
-    default: RAZORPAY # Toggle to STRIPE as needed
+  currency: INR
+  # Learning project: only TEST keys (rzp_test_ / sk_test_) are accepted. Set PAYMENT_SANDBOX_ONLY=false to allow live keys (never do that here).
+  sandbox-only: ${PAYMENT_SANDBOX_ONLY:true}
+  cod:
+    enabled: true
+    max-amount: 50000
 
-# Empty defaults: the service starts without keys; RazorpayStrategy reports a clear error on first use.
+# Empty defaults: the service starts without keys; a gateway without keys is simply hidden from the payment page.
 razorpay:
   key-id: ${RAZORPAY_KEY_ID:}
   key-secret: ${RAZORPAY_KEY_SECRET:}
+  webhook-secret: ${RAZORPAY_WEBHOOK_SECRET:}
 
 stripe:
-  secret-key: ${STRIPE_SECRET_KEY:sk_test_123456}
+  secret-key: ${STRIPE_SECRET_KEY:}
+  publishable-key: ${STRIPE_PUBLISHABLE_KEY:}
+  webhook-secret: ${STRIPE_WEBHOOK_SECRET:}

@@ -45,6 +45,18 @@ public class Product {
 
     private Integer stock;
 
+    /**
+     * Option names of a product with variants, e.g. ["Colour", "Size"] or ["Bed size"] (at most 2). Null / empty = a
+     * simple product (no selector in the shop). For a variant product mrpPrice / sellingPrice / discountPrice above
+     * hold the CHEAPEST active variant ("From Rs X" on cards).
+     */
+    private List<String> optionNames;
+
+    private List<ProductVariant> variants;
+
+    /** Pictures per value of the first option (see {@link OptionGallery}); {@code imageUrl} above = common pictures. */
+    private List<OptionGallery> galleries;
+
     @CreatedDate
     private Instant createdAt;
 }

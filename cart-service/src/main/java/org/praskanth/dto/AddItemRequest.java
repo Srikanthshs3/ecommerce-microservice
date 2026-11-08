@@ -14,6 +14,10 @@ public class AddItemRequest {
     @NotBlank
     private String productId;
 
+    /** Required when the product has variants (the id of the chosen colour/size combination); omit for simple products. */
+    private String variantId;
+
+    /** Legacy: only used by products without variants. */
     private String size;
 
     @NotNull

@@ -17,6 +17,7 @@ import org.praskanth.entity.User;
 import org.praskanth.enums.UserRole;
 import org.praskanth.event.UserRegisteredDomainEvent;
 import org.praskanth.exception.BadRequestException;
+import org.praskanth.exception.ServiceUnavailableException;
 import org.praskanth.exception.ConflictException;
 import org.praskanth.exception.ForbiddenOperationException;
 import org.praskanth.exception.NotFoundException;
@@ -87,7 +88,7 @@ public class SellerServiceImpl implements SellerService {
     @Override
     @Transactional
     public SellerResponse onboardExistingUser(Long userId, SellerProfileRequest request) {
-        User user = userRepo.findById(userId).orElseThrow(() -> new NotFoundException("User not found"));
+        User user = userRepo.findById(userId).orElseThrow(() -> new NotFoundException("We couldn't find that user."));
         if (user.getSellerProfile() != null) {
             throw new ConflictException("You already have a seller profile");
         }
@@ -95,7 +96,7 @@ public class SellerServiceImpl implements SellerService {
         validateProfileRules(profile, null);
 
         Role sellerRole = roleRepo.findByName(UserRole.SELLER)
-                .orElseThrow(() -> new BadRequestException("Role SELLER is not configured in the system"));
+                .orElseThrow(() -> new ServiceUnavailableException("This option is not available right now. Please contact support if it keeps happening.", new IllegalStateException("Role SELLER is not configured")));
         user.getRole().add(sellerRole);
 
         SellerProfile sellerProfile = buildProfile(user, profile);
@@ -219,7 +220,7 @@ public class SellerServiceImpl implements SellerService {
 
     private SellerProfile findSeller(Long sellerId) {
         return sellerRepo.findById(sellerId)
-                .orElseThrow(() -> new NotFoundException("Seller with ID " + sellerId + " not found"));
+                .orElseThrow(() -> new NotFoundException("We couldn't find that seller."));
     }
 
     private SellerProfile buildProfile(User user, NormalizedProfile p) {

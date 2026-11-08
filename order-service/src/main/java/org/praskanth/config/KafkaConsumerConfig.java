@@ -141,4 +141,22 @@ public class KafkaConsumerConfig {
         factory.setCommonErrorHandler(kafkaErrorHandler);
         return factory;
     }
+
+    // ---------- ShipmentStatusChangedEvent -> READY_TO_SHIP / OUT_FOR_DELIVERY / DELIVERED / CANCELLED ----------
+
+    @Bean
+    public ConsumerFactory<String, ShipmentStatusChangedEvent> shipmentStatusChangedConsumerFactory() {
+        return new DefaultKafkaConsumerFactory<>(baseConfig());
+    }
+
+    @Bean
+    public ConcurrentKafkaListenerContainerFactory<String, ShipmentStatusChangedEvent> shipmentStatusChangedContainerFactory(
+            DefaultErrorHandler kafkaErrorHandler) {
+        ConcurrentKafkaListenerContainerFactory<String, ShipmentStatusChangedEvent> factory =
+                new ConcurrentKafkaListenerContainerFactory<>();
+        factory.setConsumerFactory(shipmentStatusChangedConsumerFactory());
+        factory.getContainerProperties().setAckMode(ContainerProperties.AckMode.MANUAL_IMMEDIATE);
+        factory.setCommonErrorHandler(kafkaErrorHandler);
+        return factory;
+    }
 }

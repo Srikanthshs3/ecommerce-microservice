@@ -37,7 +37,7 @@ public class OutboxEvent {
     @Column(name = "partition_key", nullable = false)
     private String partitionKey;
 
-    @Lob
+   // @Lob
     @Column(name = "json_payload", nullable = false)
     private String jsonPayload;
 

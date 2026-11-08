@@ -165,6 +165,23 @@ public class InventoryService {
         log.info("Released {} reservation(s) for order {}", reservations.size(), orderId);
     }
 
+    /**
+     * A parcel that left (stock already deducted, reservation CONFIRMED) came back undelivered: the goods are with the
+     * seller again, so they become available. Marked RELEASED so a redelivered event does nothing the second time.
+     */
+    public void restockReturnedForOrder(Long orderId) {
+        List<OrderReservation> sold =
+                orderReservationRepository.findByOrderIdAndStatus(orderId, OrderReservation.ReservationStatus.CONFIRMED);
+        for (OrderReservation reservation : sold) {
+            restock(reservation.getProductId(), reservation.getQuantity());
+            reservation.setStatus(OrderReservation.ReservationStatus.RELEASED);
+            orderReservationRepository.save(reservation);
+        }
+        if (!sold.isEmpty()) {
+            log.info("Returned parcel: restocked {} line(s) for order {}", sold.size(), orderId);
+        }
+    }
+
     /** Finalizes the sale, triggered by ShipmentCreatedEvent: permanently deducts every still-RESERVED line item for this order. */
     public void confirmForOrder(Long orderId) {
         List<OrderReservation> reservations =
@@ -230,7 +247,7 @@ public class InventoryService {
                 attempts++;
                 if (attempts >= MAX_RETRIES) {
                     log.warn("Exhausted optimistic-lock retries for product {}", productId);
-                    throw new ConflictException("Stock update conflicted too many times, please retry");
+                    throw new ConflictException("Many people are buying this at the same time. Please try again in a moment.");
                 }
                 log.debug("Optimistic lock conflict for product {}, retrying ({}/{})", productId, attempts, MAX_RETRIES);
             }
@@ -252,7 +269,7 @@ public class InventoryService {
 
     private Inventory findOrThrow(String productId) {
         return inventoryRepository.findByProductId(productId)
-                .orElseThrow(() -> new NotFoundException("No inventory record for product: " + productId));
+                .orElseThrow(() -> new NotFoundException("Stock information is not available for this product yet."));
     }
 
     private InventoryResponse toResponse(Inventory inventory) {

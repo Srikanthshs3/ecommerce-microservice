@@ -5,6 +5,7 @@ import org.praskanth.entity.Role;
 import org.praskanth.entity.User;
 import org.praskanth.enums.UserRole;
 import org.praskanth.exception.BadRequestException;
+import org.praskanth.exception.ServiceUnavailableException;
 import org.praskanth.exception.ConflictException;
 import org.praskanth.repository.RoleRepo;
 import org.praskanth.repository.UserRepo;
@@ -37,7 +38,7 @@ public class UserAccountFactory {
 
     public User newUser(String email, String name, String phoneNumber, String rawPassword, UserRole role) {
         Role dbRole = roleRepo.findByName(role)
-                .orElseThrow(() -> new BadRequestException("Role " + role + " is not configured in the system"));
+                .orElseThrow(() -> new ServiceUnavailableException("This option is not available right now. Please contact support if it keeps happening.", new IllegalStateException("Role " + role + " is not configured")));
         Set<Role> roles = new HashSet<>();
         roles.add(dbRole); // mutable on purpose: a customer may later be granted SELLER
 
